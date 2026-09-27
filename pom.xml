@@ -312,49 +312,6 @@
                     </execution>
                 </executions>
             </plugin>
-            <!-- Best-effort refresh: when ../ares-cli is present alongside ares-core (a
-                 normal monorepo checkout/local build), overwrite the committed fallbacks
-                 below with the current ares_cli.py + pyproject.toml (the latter's `version`
-                 is parsed by CliPackageService for package metadata) so local/monorepo builds
-                 never need a manual re-sync. Bound to prepare-package — AFTER the default
-                 process-resources copy of src/main/resources/cli/* — specifically so this
-                 overwrites those fallbacks rather than the other way around.
-                 IMPORTANT: src/main/resources/cli/{ares_cli.py,pyproject.toml} must stay
-                 committed as real, always-present files — do NOT delete them again. A build
-                 whose checkout doesn't include the ../ares-cli sibling (e.g. a CI job scoped
-                 to just ares-core, which is apparently how the deployed image gets built)
-                 makes maven-resources-plugin's copy-resources silently do nothing when the
-                 source directory is missing — no warning, no build failure — so relying on
-                 ../ares-cli as the *only* source once shipped a jar with cli/ares_cli.py
-                 missing entirely, which 500'd on every /api/v1/cli/ares_cli.py, .deb, .rpm
-                 and .exe request in production. Confirmed by reproducing an ares-core-only
-                 build in isolation: `mvn package` exits 0 with target/classes/cli/ containing
-                 neither file at all. -->
-            <plugin>
-                <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-resources-plugin</artifactId>
-                <executions>
-                    <execution>
-                        <id>copy-cli-source</id>
-                        <phase>prepare-package</phase>
-                        <goals>
-                            <goal>copy-resources</goal>
-                        </goals>
-                        <configuration>
-                            <outputDirectory>${project.build.outputDirectory}/cli</outputDirectory>
-                            <resources>
-                                <resource>
-                                    <directory>${project.basedir}/../ares-cli</directory>
-                                    <includes>
-                                        <include>ares_cli.py</include>
-                                        <include>pyproject.toml</include>
-                                    </includes>
-                                </resource>
-                            </resources>
-                        </configuration>
-                    </execution>
-                </executions>
-            </plugin>
             <plugin>
                 <groupId>org.codehaus.mojo</groupId>
                 <artifactId>flatten-maven-plugin</artifactId>

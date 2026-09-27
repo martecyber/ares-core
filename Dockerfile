@@ -17,6 +17,21 @@ RUN --mount=type=secret,id=github_token \
     ./mvnw -q -B -ntp dependency:go-offline && \
     rm -f /root/.m2/settings.xml
 COPY src src
+# Best-effort refresh of the committed cli/agent fallback files from their own repos' latest
+# release (both public specifically so this needs no token) — same "committed file is the
+# real fallback, this is only a refresh" philosophy the old monorepo sibling-copy had, now via
+# HTTP instead of a filesystem sibling. Never fails the build: a fetch error (no network, no
+# release yet) just leaves the already-committed fallback in place.
+RUN apk add --no-cache curl && \
+    ( curl -fsSL -o src/main/resources/cli/ares_cli.py \
+        https://github.com/martecyber/ares-cli/releases/latest/download/ares_cli.py || \
+      echo "ares-cli fetch failed, keeping committed fallback" ) && \
+    ( curl -fsSL -o src/main/resources/cli/pyproject.toml \
+        https://github.com/martecyber/ares-cli/releases/latest/download/pyproject.toml || \
+      echo "ares-cli pyproject.toml fetch failed, keeping committed fallback" ) && \
+    ( curl -fsSL -o src/main/resources/agent/ares_agent.py \
+        https://github.com/martecyber/ares-agent/releases/latest/download/ares_agent.py || \
+      echo "ares-agent fetch failed, keeping committed fallback" )
 RUN ./mvnw -q -B -ntp package -DskipTests && \
     mv target/*-exec.jar target/app.jar
 
