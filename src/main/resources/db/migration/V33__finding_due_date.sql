@@ -1,0 +1,1 @@
+ALTER TABLE ares.finding ADD COLUMN IF NOT EXISTS due_date DATE;

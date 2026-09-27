@@ -1,0 +1,151 @@
+[
+  {
+    "owaspId": "A01",
+    "year": 2021,
+    "rank": 1,
+    "name": "Broken Access Control",
+    "description": "Access control enforces policy such that users cannot act outside of their intended permissions. Failures typically lead to unauthorized information disclosure, modification, or destruction of all data or performing a business function outside the user's limits. Moving up from the fifth position, 94% of applications were tested for some form of broken access control with the average incidence rate of 3.81%.",
+    "cwes": ["CWE-22","CWE-23","CWE-35","CWE-59","CWE-200","CWE-201","CWE-219","CWE-264","CWE-275","CWE-276","CWE-284","CWE-285","CWE-352","CWE-359","CWE-377","CWE-402","CWE-425","CWE-441","CWE-497","CWE-538","CWE-540","CWE-548","CWE-552","CWE-566","CWE-601","CWE-639","CWE-651","CWE-668","CWE-706","CWE-862","CWE-863","CWE-913","CWE-922","CWE-1275"],
+    "preventions": [
+      "Implement access control as a server-side mechanism and deny by default.",
+      "Log access control failures and alert administrators.",
+      "Disable web server directory listing and ensure metadata files are not present.",
+      "Rate limit API and controller access to minimize the harm from automated attack tooling.",
+      "Invalidate stateful session identifiers on the server after logout."
+    ]
+  },
+  {
+    "owaspId": "A02",
+    "year": 2021,
+    "rank": 2,
+    "name": "Cryptographic Failures",
+    "description": "Previously known as Sensitive Data Exposure, the focus is on failures related to cryptography which often leads to sensitive data exposure or system compromise. Notable CWEs include CWE-259: Use of Hard-coded Password, CWE-327: Broken or Risky Crypto Algorithm, and CWE-331: Insufficient Entropy.",
+    "cwes": ["CWE-261","CWE-296","CWE-310","CWE-319","CWE-321","CWE-322","CWE-323","CWE-324","CWE-325","CWE-326","CWE-327","CWE-328","CWE-329","CWE-330","CWE-331","CWE-335","CWE-336","CWE-337","CWE-338","CWE-339","CWE-340","CWE-347","CWE-523","CWE-720","CWE-757","CWE-759","CWE-760","CWE-780","CWE-818","CWE-916"],
+    "preventions": [
+      "Classify data processed, stored, or transmitted. Identify sensitive data per privacy laws and regulations.",
+      "Don't store sensitive data unnecessarily. Discard it as soon as possible.",
+      "Ensure up-to-date and strong standard algorithms, protocols, and keys are in use.",
+      "Encrypt all data in transit with secure protocols such as TLS with forward secrecy (FS) ciphers.",
+      "Disable caching for responses that contain sensitive data."
+    ]
+  },
+  {
+    "owaspId": "A03",
+    "year": 2021,
+    "rank": 3,
+    "name": "Injection",
+    "description": "An application is vulnerable to attack when user-supplied data is not validated, filtered, or sanitized. Hostile data is directly used or concatenated. SQL injection, NoSQL injection, OS command injection, LDAP injection, and expression language injection are the most prevalent forms.",
+    "cwes": ["CWE-20","CWE-74","CWE-75","CWE-77","CWE-78","CWE-79","CWE-80","CWE-83","CWE-87","CWE-88","CWE-89","CWE-90","CWE-91","CWE-93","CWE-94","CWE-95","CWE-96","CWE-97","CWE-98","CWE-99","CWE-100","CWE-113","CWE-116","CWE-138","CWE-184","CWE-470","CWE-471","CWE-564","CWE-610","CWE-643","CWE-644","CWE-652","CWE-917"],
+    "preventions": [
+      "Use a safe API which avoids using the interpreter entirely or provides a parameterized interface.",
+      "Use positive server-side input validation.",
+      "For residual dynamic queries, escape special characters using the specific escape syntax for that interpreter.",
+      "Use LIMIT and other SQL controls within queries to prevent mass disclosure in case of SQL injection."
+    ]
+  },
+  {
+    "owaspId": "A04",
+    "year": 2021,
+    "rank": 4,
+    "name": "Insecure Design",
+    "description": "Insecure design is a broad category representing different weaknesses, expressed as 'missing or ineffective control design.' Insecure design is not the source for all other Top 10 risk categories. There is a difference between insecure design and insecure implementation.",
+    "cwes": ["CWE-73","CWE-183","CWE-209","CWE-213","CWE-235","CWE-256","CWE-257","CWE-266","CWE-269","CWE-280","CWE-311","CWE-312","CWE-313","CWE-316","CWE-419","CWE-430","CWE-434","CWE-444","CWE-451","CWE-472","CWE-501","CWE-522","CWE-525","CWE-539","CWE-579","CWE-598","CWE-602","CWE-620","CWE-636","CWE-641","CWE-650","CWE-653","CWE-656","CWE-657","CWE-799"],
+    "preventions": [
+      "Establish and use a secure development lifecycle with AppSec professionals.",
+      "Establish and use a library of secure design patterns or paved road ready to use components.",
+      "Use threat modeling for critical authentication, access control, business logic, and key flows.",
+      "Integrate security language and controls into user stories.",
+      "Write unit and integration tests to validate that all critical flows are resistant to the threat model."
+    ]
+  },
+  {
+    "owaspId": "A05",
+    "year": 2021,
+    "rank": 5,
+    "name": "Security Misconfiguration",
+    "description": "The application might be vulnerable if it is missing appropriate security hardening, default accounts and their passwords are still enabled, error handling reveals stack traces or other overly informative error messages, or the latest security features are disabled or not configured securely.",
+    "cwes": ["CWE-2","CWE-11","CWE-13","CWE-15","CWE-16","CWE-260","CWE-315","CWE-520","CWE-526","CWE-537","CWE-541","CWE-547","CWE-611","CWE-614","CWE-756","CWE-776","CWE-942","CWE-1021","CWE-1173"],
+    "preventions": [
+      "A repeatable hardening process makes it fast and easy to deploy another environment that is appropriately locked down.",
+      "A minimal platform without any unnecessary features, components, documentation, and samples.",
+      "Review and update the configurations appropriate to all security notes, updates, and patches as part of the patch management process.",
+      "A segmented application architecture providing effective and secure separation between components.",
+      "Send security directives to clients, e.g., Security Headers."
+    ]
+  },
+  {
+    "owaspId": "A06",
+    "year": 2021,
+    "rank": 6,
+    "name": "Vulnerable and Outdated Components",
+    "description": "You are likely vulnerable if you do not know the versions of all components you use, if software is vulnerable, unsupported, or out of date, or if you do not scan for vulnerabilities regularly and subscribe to security bulletins.",
+    "cwes": ["CWE-1035","CWE-1104"],
+    "preventions": [
+      "Remove unused dependencies, unnecessary features, components, files, and documentation.",
+      "Continuously inventory the versions of both client-side and server-side components and their dependencies.",
+      "Only obtain components from official sources over secure links.",
+      "Monitor for libraries and components that are unmaintained or do not create security patches for older versions.",
+      "Ensure an ongoing plan for monitoring, triaging, and applying updates or configuration changes for the lifetime of the application."
+    ]
+  },
+  {
+    "owaspId": "A07",
+    "year": 2021,
+    "rank": 7,
+    "name": "Identification and Authentication Failures",
+    "description": "Previously known as Broken Authentication. Confirmation of the user's identity, authentication, and session management is critical to protect against authentication-related attacks. There may be authentication weaknesses if the application permits automated attacks such as credential stuffing.",
+    "cwes": ["CWE-255","CWE-259","CWE-287","CWE-288","CWE-290","CWE-294","CWE-295","CWE-297","CWE-300","CWE-302","CWE-304","CWE-306","CWE-307","CWE-346","CWE-384","CWE-521","CWE-613","CWE-620","CWE-640","CWE-798","CWE-940","CWE-1216"],
+    "preventions": [
+      "Implement multi-factor authentication to prevent automated credential stuffing, brute force, and stolen credential reuse attacks.",
+      "Do not ship or deploy with any default credentials, particularly for admin users.",
+      "Implement weak password checks.",
+      "Align password length, complexity, and rotation policies with NIST 800-63b guidelines.",
+      "Limit or increasingly delay failed login attempts. Log all failures and alert administrators."
+    ]
+  },
+  {
+    "owaspId": "A08",
+    "year": 2021,
+    "rank": 8,
+    "name": "Software and Data Integrity Failures",
+    "description": "Software and data integrity failures relate to code and infrastructure that does not protect against integrity violations. An example of this is where an application relies upon plugins, libraries, or modules from untrusted sources, repositories, and content delivery networks (CDNs).",
+    "cwes": ["CWE-345","CWE-353","CWE-426","CWE-494","CWE-502","CWE-565","CWE-784","CWE-829","CWE-830","CWE-913"],
+    "preventions": [
+      "Use digital signatures or similar mechanisms to verify the software or data is from the expected source and has not been altered.",
+      "Ensure libraries and dependencies are consuming trusted repositories.",
+      "Ensure that a software supply chain security tool is used to verify that components do not contain known vulnerabilities.",
+      "Ensure that there is a review process for code and configuration changes to minimize the chance that malicious code or configuration could be introduced.",
+      "Ensure that your CI/CD pipeline has proper segregation, configuration, and access control to ensure the integrity of the code flowing through the build and deploy processes."
+    ]
+  },
+  {
+    "owaspId": "A09",
+    "year": 2021,
+    "rank": 9,
+    "name": "Security Logging and Monitoring Failures",
+    "description": "This category is to help detect, escalate, and respond to active breaches. Without logging and monitoring, breaches cannot be detected. Insufficient logging, detection, monitoring, and active response occurs any time auditable events are not logged, warnings and errors generate no log messages, or logs are not monitored for suspicious activity.",
+    "cwes": ["CWE-117","CWE-223","CWE-532","CWE-778"],
+    "preventions": [
+      "Ensure all login, access control, and server-side input validation failures can be logged with sufficient user context to identify suspicious or malicious accounts.",
+      "Ensure that logs are generated in a format that log management solutions can easily consume.",
+      "Ensure log data is encoded correctly to prevent injections or attacks on the logging or monitoring systems.",
+      "Ensure high-value transactions have an audit trail with integrity controls to prevent tampering or deletion.",
+      "Establish or adopt an incident response and recovery plan."
+    ]
+  },
+  {
+    "owaspId": "A10",
+    "year": 2021,
+    "rank": 10,
+    "name": "Server-Side Request Forgery",
+    "description": "SSRF flaws occur whenever a web application is fetching a remote resource without validating the user-supplied URL. It allows an attacker to coerce the application to send a crafted request to an unexpected destination, even when protected by a firewall, VPN, or another type of network access control list.",
+    "cwes": ["CWE-918"],
+    "preventions": [
+      "Sanitize and validate all client-supplied input data.",
+      "Enforce the URL schema, port, and destination with a positive allow list.",
+      "Do not send raw responses to clients.",
+      "Disable HTTP redirections.",
+      "Segment remote resource access functionality in separate networks to reduce the impact of SSRF."
+    ]
+  }
+]

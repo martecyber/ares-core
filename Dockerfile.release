@@ -1,0 +1,27 @@
+# Artifact-based image — JAR must be pre-built before running docker build.
+# Used by deploy/build.sh: mvnw package → docker build -f Dockerfile.release
+# `package` now produces two jars (see pom.xml's spring-boot-maven-plugin classifier) — this
+# must grab the executable one (*-exec.jar), not the plain classes jar other modules depend on.
+FROM eclipse-temurin:21-jre-alpine
+# Package-building tools for the CLI / agent installer endpoints — see ares-core/Dockerfile
+# for the full explanation (fpm builds .deb/.rpm, needs tar/binutils/rpm kept OUTSIDE
+# .build-deps or `apk del .build-deps` silently breaks .deb builds again; NSIS/makensis
+# is intentionally omitted, both here and in the dev image — CliPackageService/
+# AgentPackageService degrade to 501 NOT_IMPLEMENTED when it's missing, with
+# install.ps1/the raw .py as the Windows fallback).
+# This was previously missing entirely from the release image (unlike the dev
+# Dockerfile), which made every .deb/.rpm download fail in any environment built
+# from this file.
+RUN apk add --no-cache git su-exec ruby libffi tar binutils rpm && \
+    apk add --no-cache --virtual .build-deps ruby-dev build-base libffi-dev && \
+    gem install --no-document fpm && \
+    apk del .build-deps && \
+    rm -rf /root/.gem/ruby/*/cache
+WORKDIR /app
+RUN addgroup -S ares && adduser -S ares -G ares && mkdir -p /data/kb
+COPY target/*-exec.jar app.jar
+COPY entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+EXPOSE 8888
+ENV JAVA_OPTS="-XX:+UseContainerSupport -XX:MaxRAMPercentage=75.0 -Djava.security.egd=file:/dev/./urandom"
+ENTRYPOINT ["/entrypoint.sh"]

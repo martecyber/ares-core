@@ -1,0 +1,45 @@
+# Production profile — placeholder. All values come from env vars.
+spring:
+  datasource:
+    url: ${ARES_PG_URL}
+    username: ${ARES_PG_USER}
+    password: ${ARES_PG_PASSWORD}
+    hikari:
+      maximum-pool-size: 50
+      minimum-idle: 10
+
+  data:
+    redis:
+      host: ${ARES_REDIS_HOST}
+      port: ${ARES_REDIS_PORT:6379}
+      password: ${ARES_REDIS_PASSWORD}
+
+  devtools:
+    restart:
+      enabled: false
+    livereload:
+      enabled: false
+
+logging:
+  level:
+    root: INFO
+    com.martecyber.ares: INFO
+
+ares:
+  jwt:
+    secret: ${ARES_JWT_SECRET}
+  cors:
+    allowed-origins: ${ARES_CORS_ORIGINS:http://localhost:5173,http://localhost:5174}
+  public-url: ${ARES_PUBLIC_URL:}
+  storage:
+    s3:
+      endpoint: ${ARES_S3_ENDPOINT}
+      region: ${ARES_S3_REGION:us-east-1}
+      access-key: ${ARES_S3_ACCESS_KEY}
+      secret-key: ${ARES_S3_SECRET_KEY}
+  timezone: ${ARES_TIMEZONE:UTC}
+  versions:
+    api: ${ARES_API_VERSION:1.0.0-beta41}
+    ui: ${ARES_UI_VERSION:1.0.0-beta66}
+    cli: ${ARES_CLI_VERSION:1.0.0-beta4}
+    agent: ${ARES_AGENT_VERSION:1.0.0-beta21}

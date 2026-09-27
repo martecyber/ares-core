@@ -1,0 +1,52 @@
+# Development profile — for local dev against infra/docker-compose.yml
+spring:
+  datasource:
+    url: jdbc:postgresql://localhost:5432/ares?currentSchema=ares
+    username: ares
+    password: ares
+    hikari:
+      maximum-pool-size: 10
+      minimum-idle: 2
+
+  data:
+    redis:
+      host: localhost
+      port: 6379
+      password: ares
+
+  devtools:
+    restart:
+      enabled: true
+    livereload:
+      enabled: true
+
+logging:
+  level:
+    com.martecyber.ares: DEBUG
+    org.springframework.security: DEBUG
+
+ares:
+  jwt:
+    # Dev-only fixed secret. Override in prod via ARES_JWT_SECRET env var.
+    secret: "dev-only-jwt-secret-change-me-for-anything-remotely-real-32b"
+  storage:
+    s3:
+      endpoint: http://localhost:9000
+      access-key: aresadmin
+      secret-key: aresadminpass
+  # Component versions surfaced via GET /api/v1/versions; `agent` also drives the
+  # auto-update mechanism (agent compares its baked-in AGENT_VERSION against this
+  # value on each heartbeat and self-replaces if newer).
+  #
+  # Format: MAJOR.MINOR.PATCH-betaN — bump N on each release (beta1 → beta2 → …).
+  # Don't touch MAJOR/MINOR/PATCH until we leave beta. Bump in lockstep with:
+  #   • api   → ares-core/pom.xml <revision>
+  #   • cli   → ares-cli/pyproject.toml + classpath ares_cli.py
+  #   • agent → ares-agent/ares_agent.py (AGENT_VERSION) + classpath copy
+  #   • ui    → ares-ui/package.json
+  timezone: "UTC"
+  versions:
+    api:   "1.0.0-beta41"
+    ui:    "1.0.0-beta66"
+    cli:   "1.0.0-beta4"
+    agent: "1.0.0-beta21"

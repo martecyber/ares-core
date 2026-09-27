@@ -1,0 +1,61 @@
+Unicode True
+!include "WinMessages.nsh"
+!define HWND_BROADCAST  0xffff
+!define APP_NAME        "Ares Agent"
+!define APP_VERSION     "{{VERSION}}"
+!define PUBLISHER       "Ares ASM"
+!define SERVER_URL      "{{SERVER_URL}}"
+!define UNINST_KEY      "Software\Microsoft\Windows\CurrentVersion\Uninstall\AresAgent"
+
+Name "${APP_NAME} ${APP_VERSION}"
+OutFile "ares_agent_setup.exe"
+InstallDir "$PROGRAMFILES64\AresAgent"
+RequestExecutionLevel admin
+ShowInstDetails show
+
+Page directory
+Page instfiles
+UninstPage instfiles
+
+Section "Install"
+  SetOutPath "$INSTDIR"
+  File "ares_agent.py"
+
+  ; Pre-populate config with the server URL — the operator must complete enrollment manually with a code.
+  CreateDirectory "$INSTDIR\config"
+  FileOpen $0 "$INSTDIR\config\server.txt" w
+  FileWrite $0 "${SERVER_URL}"
+  FileClose $0
+
+  ; ares-agent.cmd wrapper
+  FileOpen $0 "$INSTDIR\ares-agent.cmd" w
+  FileWrite $0 "@echo off$\r$\n"
+  FileWrite $0 "python $\"$INSTDIR\ares_agent.py$\" %*$\r$\n"
+  FileClose $0
+
+  ; Add to system PATH
+  ReadRegStr $1 HKLM "SYSTEM\CurrentControlSet\Control\Session Manager\Environment" "PATH"
+  WriteRegExpandStr HKLM "SYSTEM\CurrentControlSet\Control\Session Manager\Environment" "PATH" "$1;$INSTDIR"
+  SendMessage ${HWND_BROADCAST} ${WM_WININICHANGE} 0 "STR:Environment" /TIMEOUT=5000
+
+  WriteUninstaller "$INSTDIR\uninstall.exe"
+  WriteRegStr   HKLM "${UNINST_KEY}" "DisplayName"    "${APP_NAME}"
+  WriteRegStr   HKLM "${UNINST_KEY}" "DisplayVersion" "${APP_VERSION}"
+  WriteRegStr   HKLM "${UNINST_KEY}" "Publisher"      "${PUBLISHER}"
+  WriteRegStr   HKLM "${UNINST_KEY}" "URLInfoAbout"   "${SERVER_URL}"
+  WriteRegStr   HKLM "${UNINST_KEY}" "UninstallString" '"$INSTDIR\uninstall.exe"'
+  WriteRegDWORD HKLM "${UNINST_KEY}" "NoModify" 1
+  WriteRegDWORD HKLM "${UNINST_KEY}" "NoRepair" 1
+
+  MessageBox MB_OK "Ares Agent installed.$\r$\n$\r$\nLocation: $INSTDIR$\r$\n$\r$\nGenerate an enrollment code in the Ares admin UI, then run:$\r$\n  ares-agent enroll --server ${SERVER_URL} --code <CODE>$\r$\n$\r$\nStart the daemon:$\r$\n  ares-agent run"
+SectionEnd
+
+Section "Uninstall"
+  Delete "$INSTDIR\ares_agent.py"
+  Delete "$INSTDIR\ares-agent.cmd"
+  Delete "$INSTDIR\config\server.txt"
+  RMDir  "$INSTDIR\config"
+  Delete "$INSTDIR\uninstall.exe"
+  RMDir  "$INSTDIR"
+  DeleteRegKey HKLM "${UNINST_KEY}"
+SectionEnd

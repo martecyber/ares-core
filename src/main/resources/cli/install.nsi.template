@@ -1,0 +1,59 @@
+Unicode True
+!include "WinMessages.nsh"
+!define HWND_BROADCAST  0xffff
+!define APP_NAME        "Ares CLI"
+!define APP_VERSION     "{{VERSION}}"
+!define PUBLISHER       "Marte Cyber"
+!define SERVER_URL      "{{SERVER_URL}}"
+!define UNINST_KEY      "Software\Microsoft\Windows\CurrentVersion\Uninstall\AresCLI"
+
+Name "${APP_NAME} ${APP_VERSION}"
+OutFile "ares_cli_setup.exe"
+InstallDir "$LOCALAPPDATA\AresCLI"
+RequestExecutionLevel user
+ShowInstDetails show
+
+Page directory
+Page instfiles
+UninstPage instfiles
+
+Section "Install"
+  SetOutPath "$INSTDIR"
+  File "ares_cli.py"
+
+  ; config.json with pre-configured server URL
+  FileOpen $0 "$INSTDIR\config.json" w
+  FileWrite $0 '{"server":"${SERVER_URL}"}'
+  FileClose $0
+
+  ; ares.cmd — thin wrapper so 'ares' works from any directory
+  FileOpen $0 "$INSTDIR\ares.cmd" w
+  FileWrite $0 "@echo off$\r$\n"
+  FileWrite $0 "python $\"$INSTDIR\ares_cli.py$\" %*$\r$\n"
+  FileClose $0
+
+  ; Add install dir to user PATH (append; harmless if already present)
+  ReadRegStr $1 HKCU "Environment" "PATH"
+  WriteRegExpandStr HKCU "Environment" "PATH" "$1;$INSTDIR"
+  SendMessage ${HWND_BROADCAST} ${WM_WININICHANGE} 0 "STR:Environment" /TIMEOUT=5000
+
+  WriteUninstaller "$INSTDIR\uninstall.exe"
+  WriteRegStr   HKCU "${UNINST_KEY}" "DisplayName"    "${APP_NAME}"
+  WriteRegStr   HKCU "${UNINST_KEY}" "DisplayVersion" "${APP_VERSION}"
+  WriteRegStr   HKCU "${UNINST_KEY}" "Publisher"      "${PUBLISHER}"
+  WriteRegStr   HKCU "${UNINST_KEY}" "URLInfoAbout"   "${SERVER_URL}"
+  WriteRegStr   HKCU "${UNINST_KEY}" "UninstallString" '"$INSTDIR\uninstall.exe"'
+  WriteRegDWORD HKCU "${UNINST_KEY}" "NoModify" 1
+  WriteRegDWORD HKCU "${UNINST_KEY}" "NoRepair" 1
+
+  MessageBox MB_OK "Ares CLI installed!$\r$\n$\r$\nLocation: $INSTDIR$\r$\n$\r$\nRestart your terminal, then run:$\r$\n  ares configure"
+SectionEnd
+
+Section "Uninstall"
+  Delete "$INSTDIR\ares_cli.py"
+  Delete "$INSTDIR\ares.cmd"
+  Delete "$INSTDIR\config.json"
+  Delete "$INSTDIR\uninstall.exe"
+  RMDir  "$INSTDIR"
+  DeleteRegKey HKCU "${UNINST_KEY}"
+SectionEnd

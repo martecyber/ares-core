@@ -1,0 +1,1 @@
+ALTER TABLE ares.finding ADD COLUMN IF NOT EXISTS resolved_at TIMESTAMPTZ;

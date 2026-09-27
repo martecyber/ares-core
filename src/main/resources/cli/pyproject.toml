@@ -1,0 +1,16 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ares-cli"
+version = "0.1.6-beta3"
+description = "Ares ASM command-line interface"
+requires-python = ">=3.10"
+dependencies = ["requests>=2.28"]
+
+[project.scripts]
+ares = "ares_cli:main"
+
+[tool.setuptools]
+py-modules = ["ares_cli"]

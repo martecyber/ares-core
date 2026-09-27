@@ -1,0 +1,7 @@
+target/
+.flattened-pom.xml
+.mvn/wrapper/maven-wrapper.jar
+application-local.yml
+application-local.properties
+*.log
+plugins/*.jar

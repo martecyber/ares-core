@@ -1,0 +1,30 @@
+SET search_path TO ares, public;
+
+INSERT INTO permission (code, description) VALUES
+    ('USER_READ',         'View users'),
+    ('USER_WRITE',        'Create and update users'),
+    ('USER_DELETE',       'Delete users'),
+    ('ORG_READ',          'View organizations'),
+    ('ORG_WRITE',         'Create and update organizations'),
+    ('ORG_DELETE',        'Delete organizations'),
+    ('ENGAGEMENT_READ',   'View engagements'),
+    ('ENGAGEMENT_WRITE',  'Create and update engagements'),
+    ('ENGAGEMENT_DELETE', 'Delete engagements'),
+    ('FINDING_READ',      'View findings'),
+    ('FINDING_WRITE',     'Create and update findings'),
+    ('FINDING_DELETE',    'Delete findings'),
+    ('ASSET_READ',        'View assets'),
+    ('ASSET_WRITE',       'Create and update assets'),
+    ('REPORT_READ',       'View reports'),
+    ('REPORT_GENERATE',   'Generate and export reports'),
+    ('AUDIT_READ',        'View audit log'),
+    ('KB_READ',           'View knowledge base'),
+    ('KB_WRITE',          'Manage knowledge base entries'),
+    ('INTEGRATION_READ',  'View integrations'),
+    ('INTEGRATION_WRITE', 'Configure integrations'),
+    ('ROLE_READ',         'View roles and permissions'),
+    ('ROLE_WRITE',        'Manage roles and permissions'),
+    ('JOB_READ',          'View background jobs'),
+    ('FILE_READ',         'Download files and evidence'),
+    ('FILE_WRITE',        'Upload files and evidence')
+ON CONFLICT (code) DO NOTHING;

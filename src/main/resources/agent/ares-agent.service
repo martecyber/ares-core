@@ -1,0 +1,23 @@
+[Unit]
+Description=Ares Agent (remote scan daemon)
+Documentation=https://ares.martecyber.com/docs/agents
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/ares-agent run
+Restart=on-failure
+RestartSec=5s
+# The agent intentionally runs as root so nmap/masscan can use CAP_NET_RAW.
+# Operators who don't need privileged scans can change User= here and re-enroll.
+User=root
+Group=root
+# Hardening (best-effort)
+NoNewPrivileges=false
+ProtectSystem=full
+ProtectHome=read-only
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

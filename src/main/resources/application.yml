@@ -1,0 +1,119 @@
+# Default (non-profile) configuration — shared across all profiles.
+spring:
+  application:
+    name: ares-core
+  main:
+    banner-mode: console
+  servlet:
+    multipart:
+      max-file-size: 1GB
+      max-request-size: 1GB
+
+  # A genuinely unmapped path now reaches GlobalExceptionHandler as a NoHandlerFoundException
+  # instead of a bare container 404 — needed so a request to a plugin-owned route (e.g. Bug
+  # Hunting's, once it moves to a plugin) can be told WHICH plugin is missing when that plugin
+  # isn't installed/enabled, instead of a mute 404 (see PluginFallbackController's own doc). A
+  # pure REST API backend (the frontend is a separate SPA) never relies on Spring MVC's own
+  # static-resource serving, so disabling it here has no effect beyond enabling the flag above.
+  mvc:
+    throw-exception-if-no-handler-found: true
+  web:
+    resources:
+      add-mappings: false
+
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate
+    properties:
+      hibernate:
+        jdbc.time_zone: UTC
+        default_schema: ares
+        format_sql: false
+
+  flyway:
+    enabled: true
+    default-schema: ares
+    schemas: ares
+    baseline-on-migrate: true
+    locations: classpath:db/migration
+
+  data:
+    redis:
+      timeout: 2s
+      lettuce:
+        pool:
+          enabled: true
+          max-active: 16
+          max-idle: 8
+
+springdoc:
+  api-docs:
+    path: /v3/api-docs
+  swagger-ui:
+    path: /swagger-ui.html
+    operations-sorter: method
+    tags-sorter: alpha
+
+server:
+  port: 8888
+  error:
+    include-message: always
+    include-binding-errors: always
+  forward-headers-strategy: framework
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+  endpoint:
+    health:
+      show-details: when_authorized
+      probes:
+        enabled: true
+
+logging:
+  level:
+    root: INFO
+    com.martecyber.ares: DEBUG
+    org.springframework.web: INFO
+    org.hibernate.SQL: INFO
+
+ares:
+  jwt:
+    issuer: ares-asm
+    access-token-ttl: PT15M
+    refresh-token-ttl: P30D
+    # Secret comes from env in prod. Dev profile overrides with a fixed value.
+    secret: ${ARES_JWT_SECRET:}
+  storage:
+    s3:
+      endpoint: ${ARES_S3_ENDPOINT:http://localhost:9000}
+      region: ${ARES_S3_REGION:us-east-1}
+      access-key: ${ARES_S3_ACCESS_KEY:aresadmin}
+      secret-key: ${ARES_S3_SECRET_KEY:aresadminpass}
+      path-style: true
+      buckets:
+        evidence: ares-evidence
+        report-templates: ares-report-templates
+        exports: ares-exports
+        wordlists: ares-wordlists
+        favicons: ares-favicons
+        editor-images: ares-editor-images
+  integrations:
+    # 32-byte (256-bit) base64-encoded key for AES-256-GCM credential encryption.
+    # Generate with: openssl rand -base64 32
+    credential-key: ${ARES_INTEGRATION_CREDENTIAL_KEY:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=}
+  # Directory installed plugin JARs live in on disk — needs to be a persistent volume in Docker
+  # (see docker-compose.yml), otherwise every install is lost on container recreate.
+  plugins:
+    directory: ${ARES_PLUGINS_DIRECTORY:plugins}
+  kb:
+    cve:
+      repo-url: https://github.com/CVEProject/cvelistV5
+      repo-path: ${ARES_CVE_REPO_PATH:/tmp/ares/cvelistV5}
+    exploits:
+      repo-path: ${ARES_EXPLOITS_REPO_PATH:/tmp/ares/exploits}
+  retention:
+    task-history-days: ${ARES_RETENTION_TASK_HISTORY_DAYS:30}
