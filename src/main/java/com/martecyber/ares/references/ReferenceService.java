@@ -4,6 +4,7 @@ import com.martecyber.ares.common.NotFoundException;
 import com.martecyber.ares.detections.DetectionRepository;
 import com.martecyber.ares.findings.FindingRepository;
 import com.martecyber.ares.findings.templates.FindingTemplateRepository;
+import com.martecyber.ares.storage.StorageService;
 import jakarta.annotation.PostConstruct;
 import jakarta.transaction.Transactional;
 import org.slf4j.Logger;
@@ -12,13 +13,6 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
-import software.amazon.awssdk.core.sync.RequestBody;
-import software.amazon.awssdk.services.s3.S3Client;
-import software.amazon.awssdk.services.s3.model.CreateBucketRequest;
-import software.amazon.awssdk.services.s3.model.GetObjectRequest;
-import software.amazon.awssdk.services.s3.model.HeadBucketRequest;
-import software.amazon.awssdk.services.s3.model.NoSuchBucketException;
-import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 
 import java.util.UUID;
 
@@ -34,7 +28,7 @@ public class ReferenceService {
     private final DetectionRepository detectionRepo;
     private final FindingTemplateRepository templateRepo;
     private final UrlMetadataFetcher urlMetadataFetcher;
-    private final S3Client s3;
+    private final StorageService storage;
 
     @Value("${ares.storage.s3.buckets.favicons}")
     private String faviconBucket;
@@ -45,26 +39,19 @@ public class ReferenceService {
                             DetectionRepository detectionRepo,
                             FindingTemplateRepository templateRepo,
                             UrlMetadataFetcher urlMetadataFetcher,
-                            S3Client s3) {
+                            StorageService storage) {
         this.catalogRepo = catalogRepo;
         this.entryRepo = entryRepo;
         this.findingRepo = findingRepo;
         this.detectionRepo = detectionRepo;
         this.templateRepo = templateRepo;
         this.urlMetadataFetcher = urlMetadataFetcher;
-        this.s3 = s3;
+        this.storage = storage;
     }
 
     @PostConstruct
     public void ensureFaviconBucketExists() {
-        try {
-            s3.headBucket(HeadBucketRequest.builder().bucket(faviconBucket).build());
-        } catch (NoSuchBucketException e) {
-            log.info("S3 bucket '{}' not found, creating it…", faviconBucket);
-            s3.createBucket(CreateBucketRequest.builder().bucket(faviconBucket).build());
-        } catch (Exception e) {
-            log.warn("Could not verify/create S3 bucket '{}': {}", faviconBucket, e.getMessage());
-        }
+        storage.ensureBucketExists(faviconBucket);
     }
 
     public Page<ReferenceCatalog> listCatalogs(int page, int size) {
@@ -219,14 +206,7 @@ public class ReferenceService {
 
     private void storeFavicon(ReferenceEntry entry, byte[] bytes, String contentType) {
         String objectKey = "reference-entry/" + entry.getId() + "/" + UUID.randomUUID();
-        s3.putObject(
-            PutObjectRequest.builder()
-                .bucket(faviconBucket)
-                .key(objectKey)
-                .contentType(contentType != null ? contentType : "image/x-icon")
-                .build(),
-            RequestBody.fromBytes(bytes)
-        );
+        storage.put(faviconBucket, objectKey, contentType != null ? contentType : "image/x-icon", bytes);
         entry.setFaviconBucket(faviconBucket);
         entry.setFaviconObjectKey(objectKey);
         entry.setFaviconContentType(contentType != null ? contentType : "image/x-icon");
@@ -238,9 +218,7 @@ public class ReferenceService {
     public Favicon getFavicon(Long entryId) {
         ReferenceEntry entry = getEntry(entryId);
         if (entry.getFaviconObjectKey() == null) return null;
-        byte[] bytes = s3.getObjectAsBytes(
-            GetObjectRequest.builder().bucket(entry.getFaviconBucket()).key(entry.getFaviconObjectKey()).build()
-        ).asByteArray();
+        byte[] bytes = storage.get(entry.getFaviconBucket(), entry.getFaviconObjectKey());
         return new Favicon(bytes, entry.getFaviconContentType() != null ? entry.getFaviconContentType() : "image/x-icon");
     }
 }

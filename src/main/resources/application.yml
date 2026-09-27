@@ -88,12 +88,21 @@ ares:
     # Secret comes from env in prod. Dev profile overrides with a fixed value.
     secret: ${ARES_JWT_SECRET:}
   storage:
+    # "local" (default) needs no extra service — files live under local.root-dir on disk. Set
+    # to "s3" to use an S3-compatible object store instead (self-hosted or cloud); the two are
+    # mutually exclusive, picked at boot via com.martecyber.ares.storage.StorageService's two
+    # @ConditionalOnProperty implementations.
+    type: ${ARES_STORAGE_TYPE:local}
+    local:
+      root-dir: ${ARES_STORAGE_LOCAL_ROOT_DIR:/data/storage}
     s3:
       endpoint: ${ARES_S3_ENDPOINT:http://localhost:9000}
       region: ${ARES_S3_REGION:us-east-1}
       access-key: ${ARES_S3_ACCESS_KEY:aresadmin}
       secret-key: ${ARES_S3_SECRET_KEY:aresadminpass}
       path-style: true
+      # Bucket/directory names — used as-is by the local backend too (as subdirectory names
+      # under local.root-dir), so this block applies regardless of ares.storage.type.
       buckets:
         evidence: ares-evidence
         report-templates: ares-report-templates

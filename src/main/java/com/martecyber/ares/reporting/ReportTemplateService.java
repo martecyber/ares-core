@@ -3,16 +3,12 @@ package com.martecyber.ares.reporting;
 import com.martecyber.ares.common.NotFoundException;
 import com.martecyber.ares.reporting.dto.ReportTemplateDto;
 import com.martecyber.ares.reporting.dto.UpdateReportTemplateRequest;
+import com.martecyber.ares.storage.StorageService;
 import jakarta.transaction.Transactional;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
-import software.amazon.awssdk.core.sync.RequestBody;
-import software.amazon.awssdk.services.s3.S3Client;
-import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
-import software.amazon.awssdk.services.s3.model.GetObjectRequest;
-import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 
 import java.io.IOException;
 import java.time.OffsetDateTime;
@@ -25,7 +21,7 @@ public class ReportTemplateService {
     private final ReportTemplateRepository repo;
     private final ReportTemplateVariableRepository varRepo;
     private final ReportTemplateProjectTypeRepository typeAssocRepo;
-    private final S3Client s3;
+    private final StorageService storage;
 
     @Value("${ares.storage.s3.buckets.report-templates}") private String templateBucket;
 
@@ -33,12 +29,12 @@ public class ReportTemplateService {
         ReportTemplateRepository repo,
         ReportTemplateVariableRepository varRepo,
         ReportTemplateProjectTypeRepository typeAssocRepo,
-        S3Client s3
+        StorageService storage
     ) {
         this.repo = repo;
         this.varRepo = varRepo;
         this.typeAssocRepo = typeAssocRepo;
-        this.s3 = s3;
+        this.storage = storage;
     }
 
     public List<ReportTemplateDto> listAll() {
@@ -58,14 +54,7 @@ public class ReportTemplateService {
         Long userId = resolveUserId();
         String objectKey = "templates/" + System.currentTimeMillis() + "/" + file.getOriginalFilename();
 
-        s3.putObject(
-            PutObjectRequest.builder()
-                .bucket(templateBucket)
-                .key(objectKey)
-                .contentType(file.getContentType())
-                .build(),
-            RequestBody.fromBytes(file.getBytes())
-        );
+        storage.put(templateBucket, objectKey, file.getContentType(), file.getBytes());
 
         OffsetDateTime now = OffsetDateTime.now();
         ReportTemplate t = new ReportTemplate();
@@ -122,12 +111,8 @@ public class ReportTemplateService {
     public ReportTemplateDto updateFile(Long id, MultipartFile file) throws IOException {
         ReportTemplate t = repo.findById(id).orElseThrow(() -> NotFoundException.of("report_template", id));
         String newKey = "templates/" + System.currentTimeMillis() + "/" + file.getOriginalFilename();
-        s3.putObject(
-            PutObjectRequest.builder().bucket(templateBucket).key(newKey)
-                .contentType(file.getContentType()).build(),
-            RequestBody.fromBytes(file.getBytes())
-        );
-        s3.deleteObject(DeleteObjectRequest.builder().bucket(t.getBucket()).key(t.getObjectKey()).build());
+        storage.put(templateBucket, newKey, file.getContentType(), file.getBytes());
+        storage.delete(t.getBucket(), t.getObjectKey());
         t.setObjectKey(newKey);
         t.setOriginalFilename(file.getOriginalFilename());
         t.setUpdatedAt(OffsetDateTime.now());
@@ -138,15 +123,13 @@ public class ReportTemplateService {
     @Transactional
     public void delete(Long id) {
         ReportTemplate t = repo.findById(id).orElseThrow(() -> NotFoundException.of("report_template", id));
-        s3.deleteObject(DeleteObjectRequest.builder().bucket(t.getBucket()).key(t.getObjectKey()).build());
+        storage.delete(t.getBucket(), t.getObjectKey());
         repo.deleteById(id);
     }
 
     public byte[] downloadTemplate(Long id) {
         ReportTemplate t = repo.findById(id).orElseThrow(() -> NotFoundException.of("report_template", id));
-        return s3.getObjectAsBytes(
-            GetObjectRequest.builder().bucket(t.getBucket()).key(t.getObjectKey()).build()
-        ).asByteArray();
+        return storage.get(t.getBucket(), t.getObjectKey());
     }
 
     private ReportTemplateDto toDto(ReportTemplate t) {

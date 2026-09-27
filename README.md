@@ -11,7 +11,8 @@ Ares ASM Backend
       assets/detections/imports/knowledge-base before the Postgres+AQL migration; it's no longer
       part of the stack.
     - Redis via Spring Data Redis + Redisson (distributed locks, Streams as job queue).
-- Storage: AWS SDK v2 S3 client (works with MinIO).
+- Storage: local directory by default (`com.martecyber.ares.storage`), or AWS SDK v2 S3 client
+  (any S3-compatible store) via `ares.storage.type=s3`.
 - Auth: JWT (HS256) — local + LDAP + OAuth2; TOTP for 2FA.
 - API docs: springdoc-openapi (OpenAPI 3.1) served at `/v3/api-docs` and `/swagger-ui.html`.
 - Logging: Log4j2.
@@ -38,7 +39,7 @@ src/main/java/com/martecyber/ares/
 ├── imports/                        PG-backed (raw payloads)
 ├── integrations/                   PG-backed (credentials + sync snapshots)
 ├── kb/                             PG-backed (CVE, EUVD, ATT&CK, CAPEC, OWASP, CWE)
-├── files/                          MinIO/S3 + metadata in PG
+├── files/                          Local dir or S3 (storage/) + metadata in PG
 ├── jobs/                           Redis Streams queue + PG state
 ├── reporting/                      DOCX/PDF generation
 └── health/                         Actuator extensions, /api/v1/ping
@@ -46,8 +47,8 @@ src/main/java/com/martecyber/ares/
 
 ## Running
 
-Requires a running Postgres, Redis, and S3-compatible store (e.g. MinIO) — point
-`application-local.yml` at them, then:
+Requires a running Postgres and Redis — storage defaults to a local directory, no extra
+service needed. Point `application-local.yml` at your Postgres/Redis, then:
 
 ```bash
 ./mvnw spring-boot:run -Dspring-boot.run.profiles=dev,local
@@ -73,7 +74,9 @@ Key env vars (prod):
 | `ARES_JWT_SECRET` | JWT signing secret (≥ 32 bytes) |
 | `ARES_PG_URL` / `ARES_PG_USER` / `ARES_PG_PASSWORD` | Postgres |
 | `ARES_REDIS_HOST` / `ARES_REDIS_PORT` / `ARES_REDIS_PASSWORD` | Redis |
-| `ARES_S3_ENDPOINT` / `ARES_S3_ACCESS_KEY` / `ARES_S3_SECRET_KEY` | S3/MinIO |
+| `ARES_STORAGE_TYPE` | `local` (default) or `s3` |
+| `ARES_STORAGE_LOCAL_ROOT_DIR` | Local storage root (default `/data/storage`) |
+| `ARES_S3_ENDPOINT` / `ARES_S3_ACCESS_KEY` / `ARES_S3_SECRET_KEY` | Only when `ARES_STORAGE_TYPE=s3` |
 
 ## Tests
 

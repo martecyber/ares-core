@@ -7,18 +7,12 @@ import com.martecyber.ares.findings.Finding;
 import com.martecyber.ares.findings.FindingRepository;
 import com.martecyber.ares.findings.templates.FindingTemplate;
 import com.martecyber.ares.findings.templates.FindingTemplateRepository;
+import com.martecyber.ares.storage.StorageService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.test.util.ReflectionTestUtils;
-import software.amazon.awssdk.core.ResponseBytes;
-import software.amazon.awssdk.services.s3.S3Client;
-import software.amazon.awssdk.services.s3.model.CreateBucketRequest;
-import software.amazon.awssdk.services.s3.model.GetObjectRequest;
-import software.amazon.awssdk.services.s3.model.GetObjectResponse;
-import software.amazon.awssdk.services.s3.model.HeadBucketRequest;
-import software.amazon.awssdk.services.s3.model.NoSuchBucketException;
 
 import java.util.Optional;
 
@@ -41,7 +35,7 @@ class ReferenceServiceTest {
     private DetectionRepository detectionRepo;
     private FindingTemplateRepository templateRepo;
     private UrlMetadataFetcher urlMetadataFetcher;
-    private S3Client s3;
+    private StorageService storage;
     private ReferenceService service;
 
     @BeforeEach
@@ -52,8 +46,8 @@ class ReferenceServiceTest {
         detectionRepo = mock(DetectionRepository.class);
         templateRepo = mock(FindingTemplateRepository.class);
         urlMetadataFetcher = mock(UrlMetadataFetcher.class);
-        s3 = mock(S3Client.class);
-        service = new ReferenceService(catalogRepo, entryRepo, findingRepo, detectionRepo, templateRepo, urlMetadataFetcher, s3);
+        storage = mock(StorageService.class);
+        service = new ReferenceService(catalogRepo, entryRepo, findingRepo, detectionRepo, templateRepo, urlMetadataFetcher, storage);
         ReflectionTestUtils.setField(service, "faviconBucket", "ares-favicons");
         when(entryRepo.save(any())).thenAnswer(inv -> inv.getArgument(0));
         when(catalogRepo.save(any())).thenAnswer(inv -> inv.getArgument(0));
@@ -261,21 +255,18 @@ class ReferenceServiceTest {
     void getFaviconReturnsNullWhenTheEntryHasNoStoredFavicon() {
         ReferenceEntry e = entry(1L);
         assertNull(service.getFavicon(1L));
-        verify(s3, never()).getObjectAsBytes(any(GetObjectRequest.class));
+        verify(storage, never()).get(any(), any());
     }
 
     @Test
-    void getFaviconFetchesFromS3WhenStored() {
+    void getFaviconFetchesFromStorageWhenStored() {
         ReferenceEntry e = entry(1L);
         e.setFaviconBucket("ares-favicons");
         e.setFaviconObjectKey("reference-entry/1/abc");
         e.setFaviconContentType("image/png");
 
         byte[] bytes = {1, 2, 3};
-        @SuppressWarnings("unchecked")
-        ResponseBytes<GetObjectResponse> respBytes = mock(ResponseBytes.class);
-        when(respBytes.asByteArray()).thenReturn(bytes);
-        when(s3.getObjectAsBytes(any(GetObjectRequest.class))).thenReturn(respBytes);
+        when(storage.get("ares-favicons", "reference-entry/1/abc")).thenReturn(bytes);
 
         var favicon = service.getFavicon(1L);
         assertArrayEquals(bytes, favicon.bytes());
@@ -283,25 +274,12 @@ class ReferenceServiceTest {
     }
 
     // ── Favicon bucket bootstrap ──────────────────────────────────────
+    // The actual head/create-retry logic lives in S3StorageService now (see
+    // S3StorageServiceTest) — this only needs to confirm the delegation happens.
 
     @Test
-    void ensureFaviconBucketExistsDoesNothingWhenTheBucketAlreadyExists() {
+    void ensureFaviconBucketExistsDelegatesToStorageService() {
         service.ensureFaviconBucketExists();
-        verify(s3).headBucket(any(HeadBucketRequest.class));
-        verify(s3, never()).createBucket(any(CreateBucketRequest.class));
-    }
-
-    @Test
-    void ensureFaviconBucketExistsCreatesTheBucketWhenMissing() {
-        when(s3.headBucket(any(HeadBucketRequest.class))).thenThrow(NoSuchBucketException.builder().build());
-        service.ensureFaviconBucketExists();
-        verify(s3).createBucket(any(CreateBucketRequest.class));
-    }
-
-    @Test
-    void ensureFaviconBucketExistsSwallowsOtherFailures() {
-        when(s3.headBucket(any(HeadBucketRequest.class))).thenThrow(new RuntimeException("boom"));
-        assertDoesNotThrow(() -> service.ensureFaviconBucketExists());
-        verify(s3, never()).createBucket(any(CreateBucketRequest.class));
+        verify(storage).ensureBucketExists("ares-favicons");
     }
 }

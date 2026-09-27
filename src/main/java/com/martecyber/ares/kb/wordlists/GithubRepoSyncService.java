@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.martecyber.ares.jobs.JobService;
 import com.martecyber.ares.jobs.dto.CreateJobRequest;
 import com.martecyber.ares.jobs.dto.UpdateJobRequest;
+import com.martecyber.ares.storage.StorageService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -14,9 +15,6 @@ import org.springframework.scheduling.annotation.Async;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import software.amazon.awssdk.core.sync.RequestBody;
-import software.amazon.awssdk.services.s3.S3Client;
-import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -50,7 +48,7 @@ public class GithubRepoSyncService {
     private final KbWordlistRepoRepository repoRepo;
     private final KbWordlistRepository wordlistRepo;
     private final KbWordlistFolderRepository folderRepo;
-    private final S3Client s3;
+    private final StorageService storage;
     private final ObjectMapper mapper;
     private final JobService jobService;
     private final Set<Long> syncing = Collections.synchronizedSet(new HashSet<>());
@@ -66,13 +64,13 @@ public class GithubRepoSyncService {
     public GithubRepoSyncService(KbWordlistRepoRepository repoRepo,
                                   KbWordlistRepository wordlistRepo,
                                   KbWordlistFolderRepository folderRepo,
-                                  S3Client s3,
+                                  StorageService storage,
                                   ObjectMapper mapper,
                                   JobService jobService) {
         this.repoRepo = repoRepo;
         this.wordlistRepo = wordlistRepo;
         this.folderRepo = folderRepo;
-        this.s3 = s3;
+        this.storage = storage;
         this.mapper = mapper;
         this.jobService = jobService;
     }
@@ -413,10 +411,7 @@ public class GithubRepoSyncService {
         wl.setUpdatedAt(OffsetDateTime.now());
         if (isNew) wl.setCreatedAt(OffsetDateTime.now());
 
-        s3.putObject(
-            PutObjectRequest.builder().bucket(bucket).key(objectKey).contentType("text/plain").build(),
-            RequestBody.fromBytes(content)
-        );
+        storage.put(bucket, objectKey, "text/plain", content);
         wordlistRepo.save(wl);
     }
 

@@ -2,6 +2,7 @@ package com.martecyber.ares.files;
 
 import com.martecyber.ares.common.NotFoundException;
 import com.martecyber.ares.files.dto.FileMetadataDto;
+import com.martecyber.ares.storage.StorageService;
 import com.martecyber.ares.users.OrgScopeService;
 import jakarta.transaction.Transactional;
 import org.springframework.beans.factory.annotation.Value;
@@ -12,11 +13,6 @@ import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
-import software.amazon.awssdk.core.sync.RequestBody;
-import software.amazon.awssdk.services.s3.S3Client;
-import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
-import software.amazon.awssdk.services.s3.model.GetObjectRequest;
-import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 
 import java.io.IOException;
 import java.time.OffsetDateTime;
@@ -25,14 +21,14 @@ import java.time.OffsetDateTime;
 public class FileService {
 
     private final FileMetadataRepository repo;
-    private final S3Client s3;
+    private final StorageService storage;
     private final OrgScopeService orgScope;
 
     @Value("${ares.storage.s3.buckets.evidence}") private String evidenceBucket;
 
-    public FileService(FileMetadataRepository repo, S3Client s3, OrgScopeService orgScope) {
+    public FileService(FileMetadataRepository repo, StorageService storage, OrgScopeService orgScope) {
         this.repo = repo;
-        this.s3 = s3;
+        this.storage = storage;
         this.orgScope = orgScope;
     }
 
@@ -72,14 +68,7 @@ public class FileService {
         }
         String objectKey = organizationId + "/" + System.currentTimeMillis() + "/" + file.getOriginalFilename();
 
-        s3.putObject(
-            PutObjectRequest.builder()
-                .bucket(evidenceBucket)
-                .key(objectKey)
-                .contentType(file.getContentType())
-                .build(),
-            RequestBody.fromBytes(file.getBytes())
-        );
+        storage.put(evidenceBucket, objectKey, file.getContentType(), file.getBytes());
 
         FileMetadata meta = new FileMetadata();
         meta.setOrganizationId(organizationId);
@@ -99,16 +88,14 @@ public class FileService {
     public byte[] download(Long id) throws IOException {
         FileMetadata meta = repo.findById(id).orElseThrow(() -> NotFoundException.of("file", id));
         orgScope.assertOrgAccess(currentAuth(), meta.getOrganizationId());
-        return s3.getObjectAsBytes(
-            GetObjectRequest.builder().bucket(meta.getBucket()).key(meta.getObjectKey()).build()
-        ).asByteArray();
+        return storage.get(meta.getBucket(), meta.getObjectKey());
     }
 
     @Transactional
     public void delete(Long id) {
         FileMetadata meta = repo.findById(id).orElseThrow(() -> NotFoundException.of("file", id));
         orgScope.assertOrgAccess(currentAuth(), meta.getOrganizationId());
-        s3.deleteObject(DeleteObjectRequest.builder().bucket(meta.getBucket()).key(meta.getObjectKey()).build());
+        storage.delete(meta.getBucket(), meta.getObjectKey());
         repo.deleteById(id);
     }
 }

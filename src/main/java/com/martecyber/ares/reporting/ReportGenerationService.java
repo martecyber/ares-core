@@ -73,10 +73,7 @@ import org.apache.poi.xwpf.usermodel.XWPFTableCell;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
-import software.amazon.awssdk.core.sync.RequestBody;
-import software.amazon.awssdk.services.s3.S3Client;
-import software.amazon.awssdk.services.s3.model.GetObjectRequest;
-import software.amazon.awssdk.services.s3.model.PutObjectRequest;
+import com.martecyber.ares.storage.StorageService;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
@@ -122,7 +119,7 @@ public class ReportGenerationService {
     private final AssetRepository assetRepo;
     private final DetectionRepository detectionRepo;
     private final DetectionIterationStatRepository detectionStatRepo;
-    private final S3Client s3;
+    private final StorageService storage;
 
     @Value("${ares.storage.s3.buckets.report-templates}") private String templateBucket;
     @Value("${ares.storage.s3.buckets.exports}") private String exportsBucket;
@@ -153,7 +150,7 @@ public class ReportGenerationService {
         AssetRepository assetRepo,
         DetectionRepository detectionRepo,
         DetectionIterationStatRepository detectionStatRepo,
-        S3Client s3
+        StorageService storage
     ) {
         this.reportRepo = reportRepo;
         this.reportFindingRepo = reportFindingRepo;
@@ -180,7 +177,7 @@ public class ReportGenerationService {
         this.assetRepo = assetRepo;
         this.detectionRepo = detectionRepo;
         this.detectionStatRepo = detectionStatRepo;
-        this.s3 = s3;
+        this.storage = storage;
     }
 
     /** True when {@code typeId} is the RETEST master or any user-defined subtype of it. */
@@ -284,10 +281,7 @@ public class ReportGenerationService {
         try {
             byte[] docx = generateDocx(template, report, project, findings, customFields);
             String objectKey = report.getOrganizationId() + "/reports/" + now.toEpochSecond() + "_" + reportId + ".docx";
-            s3.putObject(
-                PutObjectRequest.builder().bucket(exportsBucket).key(objectKey).contentType(CONTENT_TYPE_DOCX).build(),
-                RequestBody.fromBytes(docx)
-            );
+            storage.put(exportsBucket, objectKey, CONTENT_TYPE_DOCX, docx);
             report.setTemplateId(template.getId());
             report.setReportBucket(exportsBucket);
             report.setReportObjectKey(objectKey);
@@ -667,9 +661,7 @@ public class ReportGenerationService {
     public List<Map<String, Object>> analyzeTemplate(Long templateId) throws Exception {
         ReportTemplate template = templateRepo.findById(templateId)
             .orElseThrow(() -> NotFoundException.of("report_template", templateId));
-        byte[] bytes = s3.getObjectAsBytes(
-            GetObjectRequest.builder().bucket(template.getBucket()).key(template.getObjectKey()).build()
-        ).asByteArray();
+        byte[] bytes = storage.get(template.getBucket(), template.getObjectKey());
 
         // Extract text from the DOCX and find all {{...}} patterns
         Set<String> vars = extractTemplateVars(bytes);
@@ -768,9 +760,7 @@ public class ReportGenerationService {
 
     private byte[] generateDocx(ReportTemplate template, Report report, Project project,
                                   List<Finding> findings, Map<String, String> customFields) throws Exception {
-        byte[] templateBytes = s3.getObjectAsBytes(
-            GetObjectRequest.builder().bucket(template.getBucket()).key(template.getObjectKey()).build()
-        ).asByteArray();
+        byte[] templateBytes = storage.get(template.getBucket(), template.getObjectKey());
 
         // Batch-load lookup tables (same as exportJson)
         Map<Long, String> scoreTypeNames = findingScoreTypeRepo.findAll().stream()

@@ -3,6 +3,7 @@ package com.martecyber.ares.reporting;
 import com.martecyber.ares.common.NotFoundException;
 import com.martecyber.ares.reporting.dto.CreateReportRequest;
 import com.martecyber.ares.reporting.dto.ReportDto;
+import com.martecyber.ares.storage.StorageService;
 import com.martecyber.ares.users.OrgScopeService;
 import jakarta.transaction.Transactional;
 import org.springframework.beans.factory.annotation.Value;
@@ -13,10 +14,6 @@ import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
-import software.amazon.awssdk.core.sync.RequestBody;
-import software.amazon.awssdk.services.s3.S3Client;
-import software.amazon.awssdk.services.s3.model.GetObjectRequest;
-import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 
 import java.io.IOException;
 import java.time.OffsetDateTime;
@@ -28,7 +25,7 @@ public class ReportService {
     private final ReportRepository repo;
     private final ReportFindingRepository findingLinkRepo;
     private final ReportFieldRepository fieldRepo;
-    private final S3Client s3;
+    private final StorageService storage;
     private final OrgScopeService orgScope;
 
     @Value("${ares.storage.s3.buckets.exports}") private String exportsBucket;
@@ -36,12 +33,12 @@ public class ReportService {
     public ReportService(ReportRepository repo,
                          ReportFindingRepository findingLinkRepo,
                          ReportFieldRepository fieldRepo,
-                         S3Client s3,
+                         StorageService storage,
                          OrgScopeService orgScope) {
         this.repo = repo;
         this.findingLinkRepo = findingLinkRepo;
         this.fieldRepo = fieldRepo;
-        this.s3 = s3;
+        this.storage = storage;
         this.orgScope = orgScope;
     }
 
@@ -116,12 +113,9 @@ public class ReportService {
             ? file.getOriginalFilename().substring(file.getOriginalFilename().lastIndexOf('.'))
             : ".docx";
         String objectKey = r.getOrganizationId() + "/reports/" + System.currentTimeMillis() + "_" + id + ext;
-        s3.putObject(
-            PutObjectRequest.builder().bucket(exportsBucket).key(objectKey)
-                .contentType(file.getContentType() != null ? file.getContentType() : "application/octet-stream")
-                .build(),
-            RequestBody.fromBytes(file.getBytes())
-        );
+        storage.put(exportsBucket, objectKey,
+            file.getContentType() != null ? file.getContentType() : "application/octet-stream",
+            file.getBytes());
         r.setReportBucket(exportsBucket);
         r.setReportObjectKey(objectKey);
         r.setStatus("draft");
@@ -138,9 +132,7 @@ public class ReportService {
         }
         if (r.getReportObjectKey() == null) throw new IllegalStateException("Report has no downloadable file");
         String bucket = r.getReportBucket() != null ? r.getReportBucket() : exportsBucket;
-        return s3.getObjectAsBytes(
-            GetObjectRequest.builder().bucket(bucket).key(r.getReportObjectKey()).build()
-        ).asByteArray();
+        return storage.get(bucket, r.getReportObjectKey());
     }
 
     @Transactional
