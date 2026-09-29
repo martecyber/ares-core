@@ -59,7 +59,7 @@
 
     <properties>
         <java.version>21</java.version>
-        <revision>1.0.0-beta2</revision>
+        <revision>1.0.0-beta3</revision>
         <!-- Must match ares-sdk's own <revision> — see that module's pom.xml. -->
         <ares-sdk.version>1.0.0-beta1</ares-sdk.version>
         <springdoc.version>2.8.6</springdoc.version>
