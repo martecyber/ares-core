@@ -5,7 +5,20 @@ import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.util.Collection;
+import java.util.List;
+
 public interface AffectionAssetRepository extends JpaRepository<AffectionAsset, AffectionAssetId> {
+
+    /** Distinct assets (any role — detected_at or affects) touched by any of the given findings.
+     *  affectionId is a plain FK column on both Affection and AffectionAsset, not a mapped
+     *  relation, hence the theta join. */
+    @Query("""
+        SELECT DISTINCT aa.asset FROM AffectionAsset aa
+        JOIN Affection aff ON aff.id = aa.affectionId
+        WHERE aff.findingId IN :findingIds
+        """)
+    List<com.martecyber.ares.assets.Asset> findDistinctAssetsByFindingIds(@Param("findingIds") Collection<Long> findingIds);
 
     @Modifying(clearAutomatically = true)
     @Query(value = "DELETE FROM ares.affection_asset WHERE affection_id = :affectionId AND asset_id = :assetId AND role = :role",

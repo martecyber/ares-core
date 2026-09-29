@@ -15,7 +15,7 @@ import java.util.List;
  *  #getPlatforms()}/{@link #getDataSources()}/{@link #getPermissionsRequired()} are likewise
  *  native arrays, all HAS-queryable now that they're real Postgres arrays. The normalized {@code
  *  attack_technique_tactic} join table (see V155's migration comment) is an ADDITIONAL relational
- *  path for AQL nesting ({@code attack.tactics.name}), not a replacement for this array. */
+ *  path for AQL nesting ({@code attackTechnique.tactics.name}), not a replacement for this array. */
 @Entity
 @Table(name = "attack_technique", schema = "ares")
 public class AttackTechnique {

@@ -37,9 +37,9 @@ import static org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTest
  * Real-Postgres coverage for ATT&CK (AQL-wide initiative, Phase 5 — final entity of this phase):
  * direct technique queries, the new {@code attack_technique_tactic}/{@code
  * attack_technique_mitigation} join tables (populated directly here rather than via a full sync,
- * mirroring AttackService.saveMatrix's own resolution logic), {@code attack.tactics.*}/{@code
- * attack.mitigations.*} nesting, the reverse {@code mitigation.techniques.*}, and that {@code
- * detection.attack.*}/{@code finding.attack.*} resolve correctly now that this namespace switched
+ * mirroring AttackService.saveMatrix's own resolution logic), {@code attackTechnique.tactics.*}/{@code
+ * attackTechnique.mitigations.*} nesting, the reverse {@code mitigation.techniques.*}, and that {@code
+ * detection.attackTechnique.*}/{@code finding.attackTechnique.*} resolve correctly now that this namespace switched
  * from KB_FEDERATED to a RelationAqlField.
  */
 @DataJpaTest
@@ -248,16 +248,16 @@ class AttackAqlRegistryIT {
 
     @Test
     void transitiveDetectionAttackQueryWorks() {
-        assertEquals(1, runDetection("attack.id == \"T1566\"").size());
-        assertEquals(0, runDetection("attack.id == \"T9999\"").size());
+        assertEquals(1, runDetection("attackTechnique.id == \"T1566\"").size());
+        assertEquals(0, runDetection("attackTechnique.id == \"T9999\"").size());
     }
 
-    /** Proves the transitive chain goes a full THREE hops: detection -> attack -> mitigations —
+    /** Proves the transitive chain goes a full THREE hops: detection -> attackTechnique -> mitigations —
      *  exactly the kind of relation-of-a-relation chain the multi-round AqlRegistryLookup
      *  expansion fix (this session, Phase 4) exists to make work. */
     @Test
     void transitiveDetectionAttackMitigationsQueryWorks() {
-        assertTrue(detectionRegistry.field("attack.mitigations.id").isPresent());
-        assertEquals(1, runDetection("attack.mitigations.id == \"M1017\"").size());
+        assertTrue(detectionRegistry.field("attackTechnique.mitigations.id").isPresent());
+        assertEquals(1, runDetection("attackTechnique.mitigations.id == \"M1017\"").size());
     }
 }

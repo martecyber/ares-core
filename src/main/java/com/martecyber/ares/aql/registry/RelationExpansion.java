@@ -23,12 +23,12 @@ public final class RelationExpansion {
      *  and {@code AttackMitigationAqlRegistry}'s "techniques" are a genuine mutual/bidirectional
      *  pair, and {@link com.martecyber.ares.aql.AqlRegistryLookup}'s multi-round expansion (needed
      *  for legitimate non-cyclic 2-3 hop chains like {@code cve.kev.*} and {@code
-     *  detection.attack.mitigations.*}) re-expands EVERY registry's relations every round —
-     *  including already-flattened ones from a prior round — so a cyclic pair compounds by ~2 hops
-     *  per round instead of converging, producing field names like {@code
+     *  detection.attackTechnique.mitigations.*}) re-expands EVERY registry's relations every round
+     *  — including already-flattened ones from a prior round — so a cyclic pair compounds by ~2
+     *  hops per round instead of converging, producing field names like {@code
      *  mitigations.techniques.mitigations.techniques.mitigations} with no real analyst use case.
      *  3 preserves every legitimate chain this codebase actually uses (the deepest confirmed one,
-     *  {@code detection.attack.mitigations.id}, is 3 hops — {@code attack.mitigations.id}
+     *  {@code detection.attackTechnique.mitigations.id}, is 3 hops — {@code attackTechnique.mitigations.id}
      *  once flattened onto DetectionAqlRegistry, 2 dots) while cutting off runaway cyclic growth at
      *  the source instead of just bounding the round count (which only limits the DEPTH the
      *  explosion reaches per round, not whether it happens at all) — 4 was tried first and still

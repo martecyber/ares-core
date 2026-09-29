@@ -39,7 +39,7 @@ public class AqlController {
 
     /** {@code attackTactic}/{@code cveKevDetail} are excluded — relation-only registries with no
      *  standalone REST {@code ?aql=} surface by product decision (only reachable nested as
-     *  {@code attack.tactics.*}/{@code cve.kev.*}), so they'd be a dead end in any picker built
+     *  {@code attackTechnique.tactics.*}/{@code cve.kev.*}), so they'd be a dead end in any picker built
      *  from this list. */
     private static final java.util.Set<String> RELATION_ONLY_ENTITIES = java.util.Set.of("attackTactic", "cveKevDetail");
 

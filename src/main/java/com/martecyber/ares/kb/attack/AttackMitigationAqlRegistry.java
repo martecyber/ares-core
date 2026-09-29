@@ -17,7 +17,7 @@ import java.util.Set;
  * initiative, Phase 5). Registered in {@link AqlRegistryLookup} so {@link AttackAqlRegistry}'s
  * {@code mitigations} {@link RelationAqlField} can resolve it; also exposes the reverse relation
  * {@code techniques} (mitigation -&gt; the techniques it mitigates), so {@code
- * mitigation.techniques.*} works the same way {@code attack.mitigations.*} does — same STIX
+ * mitigation.techniques.*} works the same way {@code attackTechnique.mitigations.*} does — same STIX
  * "mitigates" relationship, same {@code attack_technique_mitigation} bridge table, just correlated
  * from the other side. Like {@link AttackTacticAqlRegistry}, no standalone REST {@code ?aql=}
  * surface exists for this entity (mitigations, like tactics, were never independently queryable).
@@ -44,7 +44,7 @@ public class AttackMitigationAqlRegistry implements EntityAqlRegistry<AttackMiti
         // techniques.* — reverse of AttackAqlRegistry's "mitigations" relation, same
         // attack_technique_mitigation bridge, correlated the other way round.
         register(new RelationAqlField<AttackMitigation, AttackTechnique>(
-            "techniques", "attack", AttackTechnique.class,
+            "techniques", "attackTechnique", AttackTechnique.class,
             (mitigationRoot, techniqueRoot, sub, cb) -> {
                 var bridge = sub.from(AttackTechniqueMitigation.class);
                 return cb.and(

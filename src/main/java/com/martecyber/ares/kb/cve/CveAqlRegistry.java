@@ -48,13 +48,15 @@ public class CveAqlRegistry implements EntityAqlRegistry<CveEntry> {
         register(column("publishedAt", AqlFieldType.DATE, DATE_OPS, r -> r.get("publishedAt")));
         register(column("lastModifiedAt", AqlFieldType.DATE, DATE_OPS, r -> r.get("lastModifiedAt")));
 
-        // cwes: list[cwe] (was a bare ArrayAqlField/HAS-only field) — array-membership relation
-        // onto CweEntry, so "cwes.id == \"CWE-79\"" resolves the same CVEs "cwes HAS \"CWE-79\""
-        // used to, plus reaches every other CWE field (cwes.name, cwes.abstraction, ...). See
+        // cwe: list[cwe] (was a bare ArrayAqlField/HAS-only field) — array-membership relation
+        // onto CweEntry, so "cwe.id == \"CWE-79\"" resolves the same CVEs "cwes HAS \"CWE-79\""
+        // used to, plus reaches every other CWE field (cwe.name, cwe.abstraction, ...). See
         // RelationAqlField#listOf's own doc comment for why no new SQL/compiler path is needed.
         // Correlates against CweEntry.code ("CWE-79"), not the bare-numeric cweId ("79") — cve.cwes
         // already stores the "cwe-79"-prefixed form, and code is the CweEntry column that matches it.
-        register(RelationAqlField.<CveEntry, CweEntry>listOf("cwes", "cwe", CweEntry.class, "cwes", "code"));
+        // AQL-facing name is singular ("cwe", not "cwes") for consistency across the whole registry
+        // — cardinality doesn't drive plural/singular here, every catalog cross-reference does.
+        register(RelationAqlField.<CveEntry, CweEntry>listOf("cwe", "cwe", CweEntry.class, "cwes", "code"));
 
         // kev.* (Phase 4 of the AQL-wide initiative) — nested detail from CveKevDetail, keyed by
         // plain cveId equality (CveKevDetail.cveId is a scalar column, not a JPA relationship, and

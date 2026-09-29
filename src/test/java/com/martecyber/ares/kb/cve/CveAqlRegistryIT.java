@@ -33,7 +33,7 @@ import static org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTest
  * function of the same name — see PostgresSpecificationCompiler.arrayContainsPredicate's own doc
  * comment); {@code array_contains_ci} (V157) replaced that mechanism for both HAS and this
  * relation's correlation, so this file keeps the same "matches only the right row, not every
- * non-empty array" regression shape, just expressed as {@code cwes.id == ...} now.
+ * non-empty array" regression shape, just expressed as {@code cwe.id == ...} now.
  */
 @DataJpaTest
 @AutoConfigureTestDatabase(replace = Replace.NONE)
@@ -72,12 +72,12 @@ class CveAqlRegistryIT {
         cveRepository.deleteAll();
         cweRepository.deleteAll();
 
-        // cwes is list[cwe] now (an array-membership RelationAqlField, not a bare HAS array) — the
-        // nested "cwes.id == ..." queries below need real CweEntry rows to correlate against.
+        // cwe is list[cwe] now (an array-membership RelationAqlField, not a bare HAS array) — the
+        // nested "cwe.id == ..." queries below need real CweEntry rows to correlate against.
         for (String id : List.of("cwe-79", "cwe-89", "cwe-20", "cwe-200")) {
             CweEntry e = new CweEntry();
             e.setCweId(id.replace("cwe-", ""));
-            // cwes.id resolves against CweEntry.code (the prefixed form), not the bare cweId.
+            // cwe.id resolves against CweEntry.code (the prefixed form), not the bare cweId.
             e.setCode(id);
             cweRepository.save(e);
         }
@@ -104,38 +104,38 @@ class CveAqlRegistryIT {
 
     @Test
     void listRelationMatchesOnlyRowsActuallyContainingTheValue() {
-        assertEquals(1, run("cwes.id == \"cwe-79\"").size());
-        assertEquals("CVE-2099-0001", run("cwes.id == \"cwe-79\"").get(0).getCveId());
+        assertEquals(1, run("cwe.id == \"cwe-79\"").size());
+        assertEquals("CVE-2099-0001", run("cwe.id == \"cwe-79\"").get(0).getCveId());
     }
 
     @Test
     void listRelationDoesNotMatchRowsWithADifferentNonEmptyArray() {
         // Regression: the old array_position-based HAS this replaced used to return all 3 rows
         // (any non-null array "matched") — array_contains_ci must not repeat that bug.
-        assertEquals(1, run("cwes.id == \"cwe-20\"").size());
+        assertEquals(1, run("cwe.id == \"cwe-20\"").size());
     }
 
     @Test
     void listRelationReturnsNothingForAValueNoRowHas() {
-        assertEquals(0, run("cwes.id == \"zzz-nonexistent\"").size());
+        assertEquals(0, run("cwe.id == \"zzz-nonexistent\"").size());
     }
 
     @Test
     void listRelationIsCaseInsensitive() {
-        assertEquals(1, run("cwes.id == \"CWE-79\"").size());
+        assertEquals(1, run("cwe.id == \"CWE-79\"").size());
     }
 
     @Test
     void listRelationCombinesWithAnotherCondition() {
-        assertEquals(1, run("cwes.id == \"cwe-79\" AND severity == critical").size());
-        assertEquals(0, run("cwes.id == \"cwe-79\" AND severity == high").size());
+        assertEquals(1, run("cwe.id == \"cwe-79\" AND severity == critical").size());
+        assertEquals(0, run("cwe.id == \"cwe-79\" AND severity == high").size());
     }
 
-    /** The bare "cwes" relation itself is never directly comparable — same rule every other
-     *  RelationAqlField follows — only its flattened "cwes.<leaf>" entries are. */
+    /** The bare "cwe" relation itself is never directly comparable — same rule every other
+     *  RelationAqlField follows — only its flattened "cwe.<leaf>" entries are. */
     @Test
     void bareCwesFieldIsNotDirectlyComparable() {
-        assertThrows(AqlCompileException.class, () -> run("cwes == \"cwe-79\""));
+        assertThrows(AqlCompileException.class, () -> run("cwe == \"cwe-79\""));
     }
 
     /** Regression test for the sibling bug found in the same verification pass: list-value EQ/IN

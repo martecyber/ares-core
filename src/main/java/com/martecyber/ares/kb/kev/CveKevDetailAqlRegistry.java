@@ -47,10 +47,11 @@ public class CveKevDetailAqlRegistry implements EntityAqlRegistry<CveKevDetail> 
         register(column("knownRansomwareCampaignUse", AqlFieldType.BOOLEAN, BOOLEAN_OPS, r -> r.get("knownRansomwareCampaignUse")));
         register(column("reportedExploitedByCanaries", AqlFieldType.BOOLEAN, BOOLEAN_OPS, r -> r.get("reportedExploitedByCanaries")));
 
-        // cwes: list[cwe] (was a bare ArrayAqlField/HAS-only field) — array-membership relation,
-        // same "cwes" treatment as CveAqlRegistry, correlated against CweEntry.code (not cweId) for
-        // the same reason: kev's cwes stores the "cwe-79"-prefixed form.
-        register(RelationAqlField.<CveKevDetail, CweEntry>listOf("cwes", "cwe", CweEntry.class, "cwes", "code"));
+        // cwe: list[cwe] (was a bare ArrayAqlField/HAS-only field) — array-membership relation,
+        // same "cwe" treatment as CveAqlRegistry (singular, not "cwes" — see its own comment for
+        // why), correlated against CweEntry.code (not cweId) for the same reason: kev's cwes
+        // stores the "cwe-79"-prefixed form.
+        register(RelationAqlField.<CveKevDetail, CweEntry>listOf("cwe", "cwe", CweEntry.class, "cwes", "code"));
         register(new ArrayAqlField<>("xdbUrls", ARRAY_OPS, r -> r.get("xdbUrls")));
         register(new ArrayAqlField<>("reportedExploitationUrls", ARRAY_OPS, r -> r.get("reportedExploitationUrls")));
 

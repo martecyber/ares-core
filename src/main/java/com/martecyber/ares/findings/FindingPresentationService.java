@@ -30,21 +30,22 @@ import java.util.stream.Collectors;
  *
  * <p>Field/namespace names deliberately mirror {@code FindingAqlRegistry}'s own AQL field names
  * 1:1 ({@code code}, {@code priority}, {@code status}, {@code fields.<slug>}, {@code cve}/{@code
- * cwe}/{@code owasp}/{@code capec}/{@code attack}) — someone who already knows how to filter
- * findings in AQL shouldn't have to learn different names to template one. List-shaped data
- * (affections, references) is exposed as {@code List<Map<String,Object>>}, meant to be consumed
- * via {@code MessagingTemplate}'s {@code {{#name}}...{{/name}}} repeat blocks rather than
- * pre-formatted into one fixed string — the template author controls the HTML of each element.
+ * cwe}/{@code owasp}/{@code capec}/{@code attackTechnique}) — someone who already knows how to
+ * filter findings in AQL shouldn't have to learn different names to template one. List-shaped
+ * data (affections, references) is exposed as {@code List<Map<String,Object>>}, meant to be
+ * consumed via {@code MessagingTemplate}'s {@code {{#name}}...{{/name}}} repeat blocks rather
+ * than pre-formatted into one fixed string — the template author controls the HTML of each
+ * element.
  */
 @Service
 public class FindingPresentationService {
 
     /** {@code ReferenceCatalog.code} → the AQL namespace name for that catalog's references (see
-     *  FindingAqlRegistry) — "ATT&CK" deliberately becomes "attack", not "att&ck": the `&` would
-     *  both break {@code MessagingTemplate}'s variable-name character class and sit awkwardly
-     *  un-escaped inside HTML template source. */
+     *  FindingAqlRegistry) — "ATT&CK" deliberately becomes "attackTechnique", not "att&ck": the
+     *  `&` would both break {@code MessagingTemplate}'s variable-name character class and sit
+     *  awkwardly un-escaped inside HTML template source. */
     private static final Map<String, String> AQL_NAMESPACE_BY_CATALOG = Map.of(
-        "CVE", "cve", "CWE", "cwe", "OWASP", "owasp", "CAPEC", "capec", "ATT&CK", "attack", "URL", "url");
+        "CVE", "cve", "CWE", "cwe", "OWASP", "owasp", "CAPEC", "capec", "ATT&CK", "attackTechnique", "URL", "url");
 
     /** Fallback severity badge color when an email template doesn't override it — same palette
      *  {@code SeverityTag.vue}/{@code ares-ui/src/utils/cvss.ts} use everywhere else in the app. */

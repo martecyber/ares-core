@@ -470,13 +470,13 @@ public class DashboardService {
             case ORGANIZATION -> {
                 seeds.add(new WidgetSeed(DashboardWidgetType.ORG_INFO_STRIP, 0, 0, 12, 2));
                 seeds.add(aqlCount(DashboardWidgetType.AQL_COUNT, "Critical findings", 0, 2, "finding",
-                    "priority == 'P0' AND isDraft == false AND isOpen == true"));
+                    "priority == \"P0\" AND isDraft == false AND isOpen == true"));
                 seeds.add(aqlCount(DashboardWidgetType.AQL_COUNT, "High findings", 2, 2, "finding",
-                    "priority == 'P1' AND isDraft == false AND isOpen == true"));
+                    "priority == \"P1\" AND isDraft == false AND isOpen == true"));
                 seeds.add(aqlCount(DashboardWidgetType.AQL_COUNT, "Medium findings", 4, 2, "finding",
-                    "priority == 'P2' AND isDraft == false AND isOpen == true"));
+                    "priority == \"P2\" AND isDraft == false AND isOpen == true"));
                 seeds.add(aqlCount(DashboardWidgetType.AQL_COUNT, "Low findings", 6, 2, "finding",
-                    "priority == 'P3' AND isDraft == false AND isOpen == true"));
+                    "priority == \"P3\" AND isDraft == false AND isOpen == true"));
                 seeds.add(aqlCount(DashboardWidgetType.AQL_COUNT, "Due in 7 days", 8, 2, "finding",
                     "slaDeadline != null AND slaDeadline >= now AND slaDeadline <= now+7d AND isDraft == false AND isOpen == true"));
                 seeds.add(aqlCount(DashboardWidgetType.AQL_COUNT, "SLA exceeded", 10, 2, "finding",
@@ -492,7 +492,7 @@ public class DashboardService {
                 seeds.add(aqlCount(DashboardWidgetType.AQL_COUNT, "Findings", 0, 6, "finding", ""));
                 seeds.add(aqlCount(DashboardWidgetType.AQL_COUNT, "Assets", 3, 6, "asset", ""));
                 seeds.add(aqlCount(DashboardWidgetType.AQL_COUNT, "Detections", 6, 6, "detection", ""));
-                seeds.add(aqlCount(DashboardWidgetType.AQL_COUNT, "New detections", 9, 6, "detection", "status == 'new'"));
+                seeds.add(aqlCount(DashboardWidgetType.AQL_COUNT, "New detections", 9, 6, "detection", "status == \"new\""));
                 if (projectService.isMonitorProject(scopeId)) {
                     seeds.add(new WidgetSeed(DashboardWidgetType.MONITOR_STATS, 0, 8, 2, 2));
                 }

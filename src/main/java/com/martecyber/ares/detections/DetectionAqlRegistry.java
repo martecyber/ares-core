@@ -169,18 +169,21 @@ public class DetectionAqlRegistry implements EntityAqlRegistry<Detection> {
                 }));
         });
 
-        // attack.* (Phase 5 of the AQL-wide initiative: ATT&CK moved to Postgres, final entity of
-        // this phase) — same RelationAqlField treatment as cwe.*/capec.* above, correlated on the
-        // plain attackId (e.g. "T1059"). No auto-extraction regex exists for ATT&CK references yet
-        // (unlike CVE/CWE), so this resolves against zero linked references until either a
-        // reference gets attached manually or the extractor grows a matching regex — architecture
-        // is complete regardless, this is just the query surface. Via AqlRegistryLookup's
-        // flat-expansion, this also transitively exposes attack.tactics.*/attack.mitigations.*
-        // (AttackAqlRegistry's own new relations) for free.
+        // attackTechnique.* (Phase 5 of the AQL-wide initiative: ATT&CK moved to Postgres, final
+        // entity of this phase) — same RelationAqlField treatment as cwe.*/capec.* above,
+        // correlated on the plain attackId (e.g. "T1059"). No auto-extraction regex exists for
+        // ATT&CK references yet (unlike CVE/CWE), so this resolves against zero linked references
+        // until either a reference gets attached manually or the extractor grows a matching regex
+        // — architecture is complete regardless, this is just the query surface. Via
+        // AqlRegistryLookup's flat-expansion, this also transitively exposes
+        // attackTechnique.tactics.*/attackTechnique.mitigations.* (AttackAqlRegistry's own new
+        // relations) for free. Name is "attackTechnique", not "attack", matching
+        // AttackAqlRegistry's own entityName() — see that class's own comment for why the whole
+        // registry uses singular catalog names regardless of cardinality.
         catalogRepo.findByCode("ATT&CK").ifPresent(catalog -> {
             Long attackCatalogId = catalog.getId();
             register(new RelationAqlField<Detection, com.martecyber.ares.kb.attack.AttackTechnique>(
-                "attack", "attack", com.martecyber.ares.kb.attack.AttackTechnique.class,
+                "attackTechnique", "attackTechnique", com.martecyber.ares.kb.attack.AttackTechnique.class,
                 (detectionRoot, attackRoot, sub, cb) -> {
                     var refRoot = sub.from(com.martecyber.ares.references.ReferenceEntry.class);
                     var backJoin = refRoot.join(REFERENCES_INVERSE_ATTRIBUTE);

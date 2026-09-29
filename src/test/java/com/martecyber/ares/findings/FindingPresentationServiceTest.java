@@ -147,8 +147,8 @@ class FindingPresentationServiceTest {
         assertEquals(2, refs.get("all").size());
         assertEquals(1, refs.get("cve").size());
         assertEquals("CVE-2024-1234", refs.get("cve").get(0).get("title"));
-        assertEquals(1, refs.get("attack").size());
-        assertEquals("T1190", refs.get("attack").get(0).get("title"));
+        assertEquals(1, refs.get("attackTechnique").size());
+        assertEquals("T1190", refs.get("attackTechnique").get(0).get("title"));
         assertNull(refs.get("att&ck"));
     }
 

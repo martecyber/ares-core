@@ -23,7 +23,7 @@ import java.util.Set;
  * no filtering at all, not even a "q" param). FindingTemplate is a platform-wide catalog entity
  * (no organizationId), unlike Finding/Detection — so unlike those, there's no scope predicate to
  * AND in on top of the compiled AQL spec. No dynamic fields yet: field_definition has no
- * entity_type='finding_template' rows (templates carry their own field values via
+ * entity_type='findingTemplate' rows (templates carry their own field values via
  * FindingTemplateField, a separate per-template EAV table, not the unified jsonb model) — adding
  * that unification is out of scope here, this registry just covers the entity's own columns.
  *
@@ -84,7 +84,7 @@ public class FindingTemplateAqlRegistry implements EntityAqlRegistry<FindingTemp
 
     @Override
     public String entityName() {
-        return "finding_template";
+        return "findingTemplate";
     }
 
     @Override

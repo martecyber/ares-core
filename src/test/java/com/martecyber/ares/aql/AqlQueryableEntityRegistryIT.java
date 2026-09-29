@@ -105,14 +105,14 @@ class AqlQueryableEntityRegistryIT {
 
     @Test
     void queryEntitiesReturnsWholeMatchingRowsForAKbEntity() {
-        List<AttackTechnique> result = registry.queryEntities("attack", "matrix == enterprise", 10);
+        List<AttackTechnique> result = registry.queryEntities("attackTechnique", "matrix == enterprise", 10);
         assertTrue(result.size() >= 2);
         assertTrue(result.stream().anyMatch(t -> "Fixture technique 1".equals(t.getName())));
     }
 
     @Test
     void queryProjectedFlattensAnArrayColumnFieldAcrossMatchingRows() {
-        List<Object> platforms = registry.queryProjected("attack", "matrix == enterprise", "platforms", 50);
+        List<Object> platforms = registry.queryProjected("attackTechnique", "matrix == enterprise", "platforms", 50);
         Set<Object> values = Set.copyOf(platforms);
         assertTrue(values.contains("Windows"));
         assertTrue(values.contains("Linux"));
@@ -121,7 +121,7 @@ class AqlQueryableEntityRegistryIT {
 
     @Test
     void queryProjectedReturnsAPlainColumnValuePerMatchingRow() {
-        List<Object> names = registry.queryProjected("attack", "matrix == enterprise", "name", 50);
+        List<Object> names = registry.queryProjected("attackTechnique", "matrix == enterprise", "name", 50);
         assertTrue(names.contains("Fixture technique 1"));
         assertTrue(names.contains("Fixture technique 2"));
     }
@@ -133,10 +133,10 @@ class AqlQueryableEntityRegistryIT {
 
     @Test
     void projectingANonColumnFieldIsRejected() {
-        // "cwes" on CveAqlRegistry is a RelationAqlField (array-membership relation onto CweEntry),
+        // "cwe" on CveAqlRegistry is a RelationAqlField (array-membership relation onto CweEntry),
         // not a PostgresColumnField — not projectable.
         var ex = assertThrows(IllegalArgumentException.class,
-            () -> registry.queryProjected("cve", "severity == critical", "cwes", 10));
+            () -> registry.queryProjected("cve", "severity == critical", "cwe", 10));
         assertTrue(ex.getMessage().contains("can't be projected"));
     }
 }

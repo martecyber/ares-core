@@ -170,12 +170,14 @@ public class FindingAqlRegistry implements EntityAqlRegistry<Finding> {
                 }));
         });
 
-        // attack.* (Phase 5 of the AQL-wide initiative: ATT&CK moved to Postgres, final entity of
-        // this phase) — same RelationAqlField treatment as Detection's own attack.*.
+        // attackTechnique.* (Phase 5 of the AQL-wide initiative: ATT&CK moved to Postgres, final
+        // entity of this phase) — same RelationAqlField treatment as Detection's own
+        // attackTechnique.*. Name is "attackTechnique", not "attack", matching AttackAqlRegistry's
+        // own entityName().
         referenceCatalogRepo.findByCode("ATT&CK").ifPresent(catalog -> {
             Long attackCatalogId = catalog.getId();
             register(new RelationAqlField<Finding, com.martecyber.ares.kb.attack.AttackTechnique>(
-                "attack", "attack", com.martecyber.ares.kb.attack.AttackTechnique.class,
+                "attackTechnique", "attackTechnique", com.martecyber.ares.kb.attack.AttackTechnique.class,
                 (findingRoot, attackRoot, sub, cb) -> {
                     var refRoot = sub.from(com.martecyber.ares.references.ReferenceEntry.class);
                     var backJoin = refRoot.join(REFERENCES_INVERSE_ATTRIBUTE);

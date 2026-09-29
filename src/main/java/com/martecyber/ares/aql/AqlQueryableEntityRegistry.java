@@ -56,7 +56,7 @@ import java.util.Map;
  *
  * <p>{@code attackTactic}/{@code cveKevDetail} are deliberately not registered here — both are
  * relation-only registries with no standalone REST {@code ?aql=} surface by product decision
- * (only reachable nested as {@code attack.tactics.*}/{@code cve.kev.*}).
+ * (only reachable nested as {@code attackTechnique.tactics.*}/{@code cve.kev.*}).
  */
 @Component
 public class AqlQueryableEntityRegistry {

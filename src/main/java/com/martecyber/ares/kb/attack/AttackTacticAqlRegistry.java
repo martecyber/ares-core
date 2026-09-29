@@ -17,7 +17,7 @@ import java.util.Set;
  * AttackAqlRegistry}'s {@code tactics} {@link RelationAqlField} can resolve it by name — there is
  * no standalone REST {@code ?aql=} surface for this entity (tactics were never independently
  * queryable, same product decision already made for KEV), only reachable nested as
- * {@code attack.tactics.*}.
+ * {@code attackTechnique.tactics.*}.
  */
 @Component
 public class AttackTacticAqlRegistry implements EntityAqlRegistry<AttackTactic> {

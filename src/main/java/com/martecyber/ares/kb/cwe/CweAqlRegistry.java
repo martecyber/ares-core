@@ -55,18 +55,21 @@ public class CweAqlRegistry implements EntityAqlRegistry<CweEntry> {
         register(column("likelihoodOfExploit", AqlFieldType.STRING, STRING_OPS, r -> r.get("likelihoodOfExploit")));
         register(column("syncedAt", AqlFieldType.DATE, DATE_OPS, r -> r.get("syncedAt")));
 
-        // parents/children/relatedCapecs: list[cwe]/list[cwe]/list[capec] (were bare
+        // parents/children/relatedCapec: list[cwe]/list[cwe]/list[capec] (were bare
         // ArrayAqlField/HAS-only fields named parentIds/childIds/relatedCapecIds) — array-membership
-        // relations, same "cwes" treatment as CveAqlRegistry, named after the ENTITY they resolve to
-        // rather than the raw ID list they're backed by (list[X] fields read as "a list of X", not
-        // "a list of X's ids" — the leaf you actually compare against is "<field>.id", not the field
-        // name itself). parents/children are genuinely self-referential (CWE -> CWE); safe from
+        // relations, named after the ENTITY they resolve to (singular, same "cwe" treatment as
+        // CveAqlRegistry — see its own comment for why) rather than the raw ID list they're backed
+        // by (list[X] fields read as "a list of X", not "a list of X's ids" — the leaf you actually
+        // compare against is "<field>.id", not the field name itself). parents/children are
+        // role-based names, not the bare entity name, so they're left plural (a CWE genuinely has
+        // multiple parents/children) — only relatedCapec(s) falls under the singular-catalog-name
+        // convention. parents/children are also genuinely self-referential (CWE -> CWE); safe from
         // runaway expansion thanks to RelationExpansion's own depth cap (MAX_RELATION_DEPTH). The
         // 4th/5th listOf args are real JPA property names (CweEntry.parentIds, CweEntry.cweId) —
         // unaffected by any AQL-surface renaming, only the first arg (the AQL name) changes.
         register(RelationAqlField.<CweEntry, CweEntry>listOf("parents", "cwe", CweEntry.class, "parentIds", "cweId"));
         register(RelationAqlField.<CweEntry, CweEntry>listOf("children", "cwe", CweEntry.class, "childIds", "cweId"));
-        register(RelationAqlField.<CweEntry, CapecEntry>listOf("relatedCapecs", "capec", CapecEntry.class, "relatedCapecIds", "capecId"));
+        register(RelationAqlField.<CweEntry, CapecEntry>listOf("relatedCapec", "capec", CapecEntry.class, "relatedCapecIds", "capecId"));
         register(new ArrayAqlField<>("applicablePlatforms", ARRAY_OPS, r -> r.get("applicablePlatforms")));
         register(new ArrayAqlField<>("observedExamples", ARRAY_OPS, r -> r.get("observedExamples")));
 

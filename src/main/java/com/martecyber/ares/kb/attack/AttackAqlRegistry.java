@@ -17,7 +17,7 @@ import java.util.Set;
  * Phase 5, migrated off MongoDB) — used both for direct ATT&amp;CK technique queries and as the
  * resolution target for Detection/Finding's {@code attack.*} {@link RelationAqlField}. Tactics and
  * mitigations (separate Postgres tables in this package) aren't direct top-level entities, but are
- * reachable nested here — {@code attack.tactics.*} and {@code attack.mitigations.*} — via new
+ * reachable nested here — {@code attackTechnique.tactics.*} and {@code attackTechnique.mitigations.*} — via new
  * relations onto the real {@code attack_technique_tactic}/{@code attack_technique_mitigation} join
  * tables (this phase's confirmed-in-scope work: {@link AttackStixParser} now parses the STIX
  * "mitigates" relationship objects it previously discarded entirely).
@@ -99,7 +99,7 @@ public class AttackAqlRegistry implements EntityAqlRegistry<AttackTechnique> {
 
     @Override
     public String entityName() {
-        return "attack";
+        return "attackTechnique";
     }
 
     @Override

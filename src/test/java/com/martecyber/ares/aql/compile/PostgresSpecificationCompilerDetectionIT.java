@@ -329,7 +329,7 @@ class PostgresSpecificationCompilerDetectionIT {
         assertTrue(registry.field("cwe.id").isPresent());
         assertTrue(registry.field("capec.id").isPresent());
         assertTrue(registry.field("owasp.id").isPresent());
-        assertTrue(registry.field("attack.id").isPresent());
+        assertTrue(registry.field("attackTechnique.id").isPresent());
     }
 
     /** tags.* — via the detection_tag join table (org-scoped tag, this session's new "tags on

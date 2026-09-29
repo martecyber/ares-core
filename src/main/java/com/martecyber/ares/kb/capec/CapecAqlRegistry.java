@@ -53,18 +53,20 @@ public class CapecAqlRegistry implements EntityAqlRegistry<CapecEntry> {
         register(new ArrayAqlField<>("prerequisites", ARRAY_OPS, r -> r.get("prerequisites")));
         register(new ArrayAqlField<>("mitigations", ARRAY_OPS, r -> r.get("mitigations")));
 
-        // relatedCwes/relatedAttackTechniques/parentCapecs/childCapecs: list[cwe]/list[attack]/
+        // relatedCwe/relatedAttackTechnique/parentCapec/childCapec: list[cwe]/list[attackTechnique]/
         // list[capec]/list[capec] (were bare ArrayAqlField/HAS-only fields named relatedCweIds/
         // relatedAttackTechniqueIds/parentCapecIds/childCapecIds) — array-membership relations,
-        // named after the entity they resolve to, same "cwes"/CweAqlRegistry.parents convention.
-        // parentCapecs/childCapecs are self-referential (CAPEC -> CAPEC), safe from runaway
-        // expansion thanks to RelationExpansion's own depth cap. The 4th/5th listOf args are real
-        // JPA property names, unaffected by any AQL-surface renaming. relatedCwes correlates against
-        // CweEntry.code (not cweId) — relatedCweIds stores the "cwe-79"-prefixed form.
-        register(RelationAqlField.<CapecEntry, CweEntry>listOf("relatedCwes", "cwe", CweEntry.class, "relatedCweIds", "code"));
-        register(RelationAqlField.<CapecEntry, AttackTechnique>listOf("relatedAttackTechniques", "attack", AttackTechnique.class, "relatedAttackTechniqueIds", "attackId"));
-        register(RelationAqlField.<CapecEntry, CapecEntry>listOf("parentCapecs", "capec", CapecEntry.class, "parentCapecIds", "capecId"));
-        register(RelationAqlField.<CapecEntry, CapecEntry>listOf("childCapecs", "capec", CapecEntry.class, "childCapecIds", "capecId"));
+        // named after the entity they resolve to, singular regardless of cardinality (same "cwe"
+        // convention as CveAqlRegistry — see its own comment for why). parentCapec/childCapec are
+        // self-referential (CAPEC -> CAPEC), safe from runaway expansion thanks to
+        // RelationExpansion's own depth cap. The 4th/5th listOf args are real JPA property names,
+        // unaffected by any AQL-surface renaming. relatedCwe correlates against CweEntry.code (not
+        // cweId) — relatedCweIds stores the "cwe-79"-prefixed form. The prefix for
+        // relatedAttackTechnique is "attackTechnique", matching AttackAqlRegistry's own entityName().
+        register(RelationAqlField.<CapecEntry, CweEntry>listOf("relatedCwe", "cwe", CweEntry.class, "relatedCweIds", "code"));
+        register(RelationAqlField.<CapecEntry, AttackTechnique>listOf("relatedAttackTechnique", "attackTechnique", AttackTechnique.class, "relatedAttackTechniqueIds", "attackId"));
+        register(RelationAqlField.<CapecEntry, CapecEntry>listOf("parentCapec", "capec", CapecEntry.class, "parentCapecIds", "capecId"));
+        register(RelationAqlField.<CapecEntry, CapecEntry>listOf("childCapec", "capec", CapecEntry.class, "childCapecIds", "capecId"));
         register(new ArrayAqlField<>("domains", ARRAY_OPS, r -> r.get("domains")));
 
         this.defaultSearchFields = List.of(capecId, name);

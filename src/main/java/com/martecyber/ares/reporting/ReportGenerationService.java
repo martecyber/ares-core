@@ -211,7 +211,10 @@ public class ReportGenerationService {
             List<Long> linkedIds = retestFindingRepo.findByRetestProjectIdOrderByLinkedAtDesc(project.getId())
                 .stream().map(ProjectRetestFinding::getFindingId).toList();
             findings = findingRepo.findAllById(linkedIds);
-        } else if (req.findingIds() != null && !req.findingIds().isEmpty()) {
+        } else if (req.findingIds() != null) {
+            // An explicit empty list (as opposed to the field being entirely absent, which falls
+            // through to the strategies below) means the caller deliberately wants a report with
+            // no findings — allowed, not a validation error.
             findings = findingRepo.findAllById(req.findingIds()).stream()
                 .filter(f -> f.getProjectId().equals(req.projectId()) && !f.isDraft())
                 .toList();
@@ -224,7 +227,6 @@ public class ReportGenerationService {
         } else {
             findings = findingRepo.findReadyToReport(req.projectId());
         }
-        if (findings.isEmpty()) throw new IllegalStateException("No findings available to include in the report");
 
         String title = (req.title() != null && !req.title().isBlank())
             ? req.title().trim()

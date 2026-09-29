@@ -118,7 +118,7 @@ class FindingAqlRegistryTest {
         assertTrue(registry.field("cwe.id").isPresent());
         assertTrue(registry.field("capec.id").isPresent());
         assertTrue(registry.field("owasp.id").isPresent());
-        assertTrue(registry.field("attack.id").isPresent());
+        assertTrue(registry.field("attackTechnique.id").isPresent());
     }
 
     @Test
@@ -128,7 +128,7 @@ class FindingAqlRegistryTest {
         assertTrue(registry.field("cwe.likelihoodOfExploit").isPresent());
         assertTrue(registry.field("capec.typicalSeverity").isPresent());
         assertTrue(registry.field("owasp.rank").isPresent());
-        assertTrue(registry.field("attack.subtechnique").isPresent());
+        assertTrue(registry.field("attackTechnique.subtechnique").isPresent());
     }
 
     @Test

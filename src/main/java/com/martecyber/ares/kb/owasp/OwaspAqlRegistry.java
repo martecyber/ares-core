@@ -39,10 +39,11 @@ public class OwaspAqlRegistry implements EntityAqlRegistry<OwaspEntry> {
         register(column("rank", AqlFieldType.NUMBER, NUMBER_OPS, r -> r.get("rank")));
         register(column("description", AqlFieldType.STRING, STRING_OPS, r -> r.get("description")));
 
-        // cwes: list[cwe] (was a bare ArrayAqlField/HAS-only field) — array-membership relation,
-        // same "cwes" treatment as CveAqlRegistry, correlated against CweEntry.code (not cweId) for
-        // the same reason: owasp.cwes stores the "cwe-79"-prefixed form.
-        register(RelationAqlField.<OwaspEntry, CweEntry>listOf("cwes", "cwe", CweEntry.class, "cwes", "code"));
+        // cwe: list[cwe] (was a bare ArrayAqlField/HAS-only field) — array-membership relation,
+        // same "cwe" treatment as CveAqlRegistry (singular, not "cwes" — see its own comment for
+        // why), correlated against CweEntry.code (not cweId) for the same reason: owasp.cwes
+        // stores the "cwe-79"-prefixed form.
+        register(RelationAqlField.<OwaspEntry, CweEntry>listOf("cwe", "cwe", CweEntry.class, "cwes", "code"));
 
         this.defaultSearchFields = List.of(owaspId, name);
     }
