@@ -39,7 +39,7 @@ ares:
       secret-key: ${ARES_S3_SECRET_KEY}
   timezone: ${ARES_TIMEZONE:UTC}
   versions:
-    api: ${ARES_API_VERSION:1.0.0-beta42}
-    ui: ${ARES_UI_VERSION:1.0.0-beta67}
+    api: ${ARES_API_VERSION:1.0.0-beta4}
+    ui: ${ARES_UI_VERSION:1.0.0-beta3}
     cli: ${ARES_CLI_VERSION:1.0.0-beta4}
     agent: ${ARES_AGENT_VERSION:1.0.0-beta21}

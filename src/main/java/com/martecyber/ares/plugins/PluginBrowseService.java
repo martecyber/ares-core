@@ -47,8 +47,8 @@ public class PluginBrowseService {
     // Field initializers double as the value a directly-`new`'d instance keeps (unit tests build
     // this class without Spring ever processing @Value) — same convention as PluginService's own
     // identical fields.
-    @Value("${ares.versions.api:1.0.0-beta42}") private String apiVersion = "1.0.0-beta42";
-    @Value("${ares.versions.ui:1.0.0-beta67}") private String uiVersion = "1.0.0-beta67";
+    @Value("${ares.versions.api:1.0.0-beta4}") private String apiVersion = "1.0.0-beta4";
+    @Value("${ares.versions.ui:1.0.0-beta3}") private String uiVersion = "1.0.0-beta3";
 
     public PluginBrowseService(PluginRepositorySourceRepository repoSourceRepo, PluginRepository pluginRepo,
                                 PluginRepositoryClient client) {
