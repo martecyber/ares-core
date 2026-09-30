@@ -48,7 +48,6 @@ public class FindingService {
     private final FindingTemplateScoreRepository templateScoreRepo;
     private final AffectionRepository affectionRepo;
     private final AffectionAffectsLinkRepository affectsLinkRepo;
-    private final com.martecyber.ares.affections.AffectionAssetRepository affectionAssetRepo;
     private final AssetRepository assetRepo;
     private final ReferenceEntryRepository referenceEntryRepo;
     private final ReferenceCatalogRepository referenceCatalogRepo;
@@ -78,7 +77,6 @@ public class FindingService {
         FindingTemplateScoreRepository templateScoreRepo,
         AffectionRepository affectionRepo,
         AffectionAffectsLinkRepository affectsLinkRepo,
-        com.martecyber.ares.affections.AffectionAssetRepository affectionAssetRepo,
         AssetRepository assetRepo,
         ReferenceEntryRepository referenceEntryRepo,
         ReferenceCatalogRepository referenceCatalogRepo,
@@ -107,7 +105,6 @@ public class FindingService {
         this.templateScoreRepo = templateScoreRepo;
         this.affectionRepo = affectionRepo;
         this.affectsLinkRepo = affectsLinkRepo;
-        this.affectionAssetRepo = affectionAssetRepo;
         this.assetRepo = assetRepo;
         this.referenceEntryRepo = referenceEntryRepo;
         this.referenceCatalogRepo = referenceCatalogRepo;
@@ -320,84 +317,6 @@ public class FindingService {
             return orgScope.accessibleOrgIds(auth);
         }
         return null;
-    }
-
-    /** Specification form of FindingRepository.filter's predicates — used by {@link #affectedAssets}
-     *  so the basic (non-AQL) filter mode can share one Specification-based path with the AQL mode
-     *  instead of needing two separate finding-matching strategies. */
-    private org.springframework.data.jpa.domain.Specification<Finding> basicFilterSpecification(
-            Long projectId, List<Long> projectIds, Long orgId, java.util.Collection<Long> orgIds, boolean includeDrafts,
-            List<String> severities, List<Long> statusIds, String iterationLabel, String q) {
-        return (root, query, cb) -> {
-            List<jakarta.persistence.criteria.Predicate> predicates = new ArrayList<>();
-            if (projectId != null) {
-                predicates.add(cb.equal(root.get("projectId"), projectId));
-            } else if (projectIds != null && !projectIds.isEmpty()) {
-                predicates.add(root.get("projectId").in(projectIds));
-            } else if (orgId != null || orgIds != null) {
-                var projectRoot = query.from(com.martecyber.ares.projects.Project.class);
-                predicates.add(cb.equal(projectRoot.get("id"), root.get("projectId")));
-                predicates.add(orgId != null
-                    ? cb.equal(projectRoot.get("organizationId"), orgId)
-                    : projectRoot.get("organizationId").in(orgIds));
-            }
-            if (!includeDrafts) {
-                predicates.add(cb.equal(root.get("isDraft"), false));
-            }
-            if (severities != null && !severities.isEmpty()) {
-                predicates.add(root.get("severity").in(severities));
-            }
-            if (statusIds != null && !statusIds.isEmpty()) {
-                predicates.add(root.get("statusId").in(statusIds));
-            }
-            if (iterationLabel != null && !iterationLabel.isBlank()) {
-                predicates.add(cb.equal(root.get("iterationLabel"), iterationLabel));
-            }
-            if (q != null && !q.isBlank()) {
-                String qLike = "%" + q.trim().toLowerCase() + "%";
-                predicates.add(cb.or(
-                    cb.like(cb.lower(root.get("title")), qLike),
-                    cb.like(cb.lower(root.get("code")), qLike)));
-            }
-            return predicates.isEmpty() ? cb.conjunction() : cb.and(predicates.toArray(new jakarta.persistence.criteria.Predicate[0]));
-        };
-    }
-
-    /**
-     * Distinct assets touched by every finding matching the given filter (basic or AQL, same
-     * coexistence rule as {@code list}/{@code listByAql}) — for the "affected assets" summary
-     * panel on findings-list views. Unlike the paginated list endpoints, this aggregates across
-     * the ENTIRE matching set, not just the current page, since the whole point is a complete
-     * deduplicated view of what's affected.
-     */
-    @Transactional
-    public List<com.martecyber.ares.affections.dto.AffectedAssetDto> affectedAssets(
-            Long projectId, List<Long> projectIds, Long orgId, boolean includeDrafts,
-            List<String> severities, List<Long> statusIds, String iterationLabel, String q, String aql) {
-        var auth = currentAuth();
-        if (isClientUser(auth)) includeDrafts = false;
-
-        java.util.Collection<Long> orgIds = resolveFindingOrgScope(projectId, orgId);
-        if (orgIds != null && orgIds.isEmpty()) return List.of();
-
-        org.springframework.data.jpa.domain.Specification<Finding> spec;
-        if (aql != null && !aql.isBlank()) {
-            var node = com.martecyber.ares.aql.parser.AqlParser.parse(aqlVariableExpander.expand(aql, projectId, orgId));
-            spec = new com.martecyber.ares.aql.compile.PostgresSpecificationCompiler<>(aqlRegistry)
-                .compile(node)
-                .and(scopeSpecification(projectId, orgId, orgIds, includeDrafts));
-        } else {
-            spec = basicFilterSpecification(projectId, projectIds, orgId, orgIds, includeDrafts, severities, statusIds, iterationLabel, q);
-        }
-
-        List<Long> findingIds = repo.findAll(spec).stream().map(Finding::getId).toList();
-        if (findingIds.isEmpty()) return List.of();
-
-        return affectionAssetRepo.findDistinctAssetsByFindingIds(findingIds).stream()
-            .map(a -> new com.martecyber.ares.affections.dto.AffectedAssetDto(a.getId(), a.getType(), a.getIdentifier()))
-            .sorted(java.util.Comparator.comparing(
-                com.martecyber.ares.affections.dto.AffectedAssetDto::identifier, String.CASE_INSENSITIVE_ORDER))
-            .toList();
     }
 
     /** Theta-join scope predicate mirroring FindingRepository.filter's JOIN Project p ON p.id =
@@ -806,6 +725,56 @@ public class FindingService {
         List<Affection> affections = new ArrayList<>(affectionRepo.findByFindingIdWithAssets(f.getId()));
         affections.sort(Comparator.comparing(Affection::getCreatedAt).thenComparing(Affection::getId));
         long affSeq = 1;
+        for (Affection aff : affections) {
+            aff.setCode(f.getCode() + "-" + affSeq++);
+            aff.setUpdatedAt(now);
+            affectionRepo.save(aff);
+        }
+
+        return buildFullDto(f);
+    }
+
+    /**
+     * Moves an already-published MONITOR-project finding to a different iteration — the
+     * operator's own correction for a finding that got reported under the wrong iteration
+     * (a late scan result, a manual escalation that landed after the boundary, etc). Changes the
+     * finding's code the same way {@link #doPublish} originally assigned it: re-derived from the
+     * target iteration's own next sequence number, never reusing the old one, so two findings
+     * never collide on the same code even if the finding later moves back. Affection codes
+     * (derived from the finding code) are re-derived the same way a publish does.
+     */
+    @Transactional
+    public FindingDto moveIteration(Long id, Long projectId, String targetLabel) {
+        if (targetLabel == null || targetLabel.isBlank()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "iterationLabel is required");
+        }
+        Finding f = repo.findById(id).orElseThrow(() -> NotFoundException.of("finding", id));
+        requireOwnProject(f, projectId);
+        if (f.isDraft()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                "Finding " + f.getId() + " has no iteration yet — publish it first");
+        }
+        var project = projectRepo.findById(f.getProjectId())
+            .orElseThrow(() -> NotFoundException.of("project", f.getProjectId()));
+        if (project.getIterationCadence() == null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                "Project " + project.getId() + " has no iteration cadence configured");
+        }
+        if (targetLabel.equals(f.getIterationLabel())) {
+            return buildFullDto(f);
+        }
+
+        String engCode = project.getCode() != null ? project.getCode() : String.valueOf(f.getProjectId());
+        long iterSeq = repo.countPublishedByProjectAndLabel(f.getProjectId(), targetLabel) + 1;
+        f.setCode(engCode + "-" + targetLabel + "-" + iterSeq);
+        f.setIterationLabel(targetLabel);
+        f.setUpdatedAt(OffsetDateTime.now());
+        repo.save(f);
+
+        List<Affection> affections = new ArrayList<>(affectionRepo.findByFindingIdWithAssets(f.getId()));
+        affections.sort(Comparator.comparing(Affection::getCreatedAt).thenComparing(Affection::getId));
+        long affSeq = 1;
+        OffsetDateTime now = OffsetDateTime.now();
         for (Affection aff : affections) {
             aff.setCode(f.getCode() + "-" + affSeq++);
             aff.setUpdatedAt(now);

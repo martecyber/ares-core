@@ -120,6 +120,7 @@ public class ReportGenerationService {
     private final DetectionRepository detectionRepo;
     private final DetectionIterationStatRepository detectionStatRepo;
     private final StorageService storage;
+    private final com.martecyber.ares.editorimages.EditorImageService editorImageService;
 
     @Value("${ares.storage.s3.buckets.report-templates}") private String templateBucket;
     @Value("${ares.storage.s3.buckets.exports}") private String exportsBucket;
@@ -150,7 +151,8 @@ public class ReportGenerationService {
         AssetRepository assetRepo,
         DetectionRepository detectionRepo,
         DetectionIterationStatRepository detectionStatRepo,
-        StorageService storage
+        StorageService storage,
+        com.martecyber.ares.editorimages.EditorImageService editorImageService
     ) {
         this.reportRepo = reportRepo;
         this.reportFindingRepo = reportFindingRepo;
@@ -178,7 +180,15 @@ public class ReportGenerationService {
         this.detectionRepo = detectionRepo;
         this.detectionStatRepo = detectionStatRepo;
         this.storage = storage;
+        this.editorImageService = editorImageService;
+        STATIC_EDITOR_IMAGE_SERVICE = editorImageService;
     }
+
+    // decodeImage() below is called from a deep tree of `private static` HTML-walking helpers
+    // (walkInline/appendBlock/appendList) with no instance in scope — bridging to the one
+    // Spring-managed EditorImageService singleton via a static field, set once in the
+    // constructor above, rather than threading it as a parameter through that whole call tree.
+    private static volatile com.martecyber.ares.editorimages.EditorImageService STATIC_EDITOR_IMAGE_SERVICE;
 
     /** True when {@code typeId} is the RETEST master or any user-defined subtype of it. */
     private boolean isRetestType(Long typeId) {
@@ -1744,18 +1754,42 @@ public class ReportGenerationService {
                 return null;
             }
         } else if (src.startsWith("http://") || src.startsWith("https://")) {
-            String lower = src.toLowerCase();
-            if (lower.contains(".jpg") || lower.contains(".jpeg")) pType = com.deepoove.poi.data.PictureType.JPEG;
-            else if (lower.contains(".gif")) pType = com.deepoove.poi.data.PictureType.GIF;
-            try (java.io.InputStream in = java.net.URI.create(src).toURL().openStream();
-                 java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream()) {
-                in.transferTo(out);
-                bytes = out.toByteArray();
-            } catch (Exception e) {
-                return null;
+            // editor-images now requires auth (see EditorImageService's class doc) — a plain HTTP
+            // GET would 401. Resolve those in-process instead: this method runs while generating
+            // a report the caller is already authorized for, so no separate access check is
+            // needed for an image embedded in that same report's own findings.
+            var editorImage = resolveEditorImage(src);
+            if (editorImage != null) {
+                bytes = editorImage.bytes();
+                pType = mimeToPoiType(editorImage.contentType());
+            } else {
+                String lower = src.toLowerCase();
+                if (lower.contains(".jpg") || lower.contains(".jpeg")) pType = com.deepoove.poi.data.PictureType.JPEG;
+                else if (lower.contains(".gif")) pType = com.deepoove.poi.data.PictureType.GIF;
+                try (java.io.InputStream in = java.net.URI.create(src).toURL().openStream();
+                     java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream()) {
+                    in.transferTo(out);
+                    bytes = out.toByteArray();
+                } catch (Exception e) {
+                    return null;
+                }
             }
         }
         return bytes == null ? null : new ImageData(bytes, pType);
+    }
+
+    /** {@code src}'s last path segment, if it parses as a UUID, resolved directly via
+     *  EditorImageService (bypassing HTTP/auth) — null for any other URL, including one whose
+     *  last segment merely looks token-shaped but doesn't resolve to a real image. */
+    private static com.martecyber.ares.editorimages.EditorImageService.ImageData resolveEditorImage(String src) {
+        var svc = STATIC_EDITOR_IMAGE_SERVICE;
+        if (svc == null) return null;
+        String lastSegment = src.substring(src.lastIndexOf('/') + 1);
+        try {
+            return svc.getInternalByToken(java.util.UUID.fromString(lastSegment));
+        } catch (IllegalArgumentException notAToken) {
+            return null;
+        }
     }
 
     private static com.deepoove.poi.data.PictureType mimeToPoiType(String mime) {

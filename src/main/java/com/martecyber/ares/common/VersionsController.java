@@ -21,9 +21,9 @@ import java.util.Map;
 @RequestMapping("/api/v1/versions")
 public class VersionsController {
 
-    @Value("${ares.versions.api:1.0.0-beta41}")   private String api;
+    @Value("${ares.versions.api:1.0.0-beta42}")   private String api;
 
-    @Value("${ares.versions.ui:1.0.0-beta66}")   private String ui;
+    @Value("${ares.versions.ui:1.0.0-beta67}")   private String ui;
     @Value("${ares.versions.cli:1.0.0-beta4}")   private String cli;
     @Value("${ares.versions.agent:1.0.0-beta21}") private String agent;
 

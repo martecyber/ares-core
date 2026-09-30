@@ -10,6 +10,7 @@ import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
 
 import java.io.IOException;
 import java.util.Map;
+import java.util.UUID;
 
 @RestController
 @RequestMapping("/api/v1/editor-images")
@@ -22,28 +23,36 @@ public class EditorImageController {
     @PostMapping(consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     @ResponseStatus(HttpStatus.CREATED)
     @PreAuthorize("hasAnyRole('MSSP_ADMIN','MSSP_OPERATOR')")
-    public Map<String, Object> upload(@RequestPart("file") MultipartFile file) throws IOException {
-        var result = svc.upload(file);
+    public Map<String, Object> upload(
+        @RequestPart("file") MultipartFile file,
+        @RequestParam(required = false) Long organizationId,
+        @RequestParam(required = false) Long projectId
+    ) throws IOException {
+        var result = svc.upload(file, organizationId, projectId);
         // Absolute URL (respecting X-Forwarded-* — see application.yml's
         // server.forward-headers-strategy: framework) rather than a relative path: this
-        // gets stored in the field's Markdown, and ReportGenerationService.decodeImage
-        // fetches it with a plain server-side HTTP GET when rendering a Word document, which
-        // can't resolve a browser-relative path.
+        // gets stored in the field's Markdown. The frontend resolves it via an authenticated
+        // fetch + blob URL (not a raw <img src> — see EditorImageService's class doc), and
+        // ReportGenerationService resolves it in-process, so nothing needs this to be
+        // browser-relative-path-free anymore, but an absolute URL is still the simplest form to
+        // embed directly in Markdown regardless of caller.
         String url = ServletUriComponentsBuilder.fromCurrentContextPath()
-            .path("/api/v1/editor-images/{id}")
-            .buildAndExpand(result.id())
+            .path("/api/v1/editor-images/{token}")
+            .buildAndExpand(result.token())
             .toUriString();
         return Map.of("id", result.id(), "url", url);
     }
 
-    /** Public — no auth required, so a plain {@code <img src>} works from the editor's
-     *  preview and from generated Word documents (see EditorImageService's class doc). */
-    @GetMapping("/{id}")
-    public ResponseEntity<byte[]> get(@PathVariable Long id) {
-        var img = svc.get(id);
+    /** Requires authentication (any logged-in user — {@link EditorImageService#get} enforces the
+     *  image's own org/project/platform-staff scope). Identified by an unguessable token, not the
+     *  sequential id — see V206's migration comment for the full history of why this changed. */
+    @GetMapping("/{token}")
+    @PreAuthorize("isAuthenticated()")
+    public ResponseEntity<byte[]> get(@PathVariable UUID token) {
+        var img = svc.get(token);
         return ResponseEntity.ok()
             .contentType(MediaType.parseMediaType(img.contentType()))
-            .header("Cache-Control", "public, max-age=31536000, immutable")
+            .header("Cache-Control", "private, max-age=31536000, immutable")
             .body(img.bytes());
     }
 }

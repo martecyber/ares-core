@@ -75,8 +75,8 @@ public class PluginService {
     // Field initializers double as the value a directly-`new`'d instance keeps (unit tests build
     // this class without Spring ever processing @Value) — Spring still overrides them from
     // application.yml/env for a real bean, same default strings VersionsController itself uses.
-    @Value("${ares.versions.api:1.0.0-beta41}") private String apiVersion = "1.0.0-beta41";
-    @Value("${ares.versions.ui:1.0.0-beta66}") private String uiVersion = "1.0.0-beta66";
+    @Value("${ares.versions.api:1.0.0-beta42}") private String apiVersion = "1.0.0-beta42";
+    @Value("${ares.versions.ui:1.0.0-beta67}") private String uiVersion = "1.0.0-beta67";
 
     public PluginService(PluginRepository repo, PluginLoader loader,
                           PluginRepositorySourceRepository repoSourceRepo, PluginRepositoryClient repoClient,

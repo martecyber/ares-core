@@ -60,7 +60,8 @@ public class SecurityConfig {
                 .requestMatchers(HttpMethod.POST, "/api/v1/webhooks/in/*").permitAll()
                 .requestMatchers(HttpMethod.GET, "/api/v1/profile/*/avatar").permitAll()
                 .requestMatchers(HttpMethod.GET, "/api/v1/organizations/*/logo").permitAll()
-                .requestMatchers(HttpMethod.GET, "/api/v1/editor-images/*").permitAll()
+                // editor-images used to be here too — now requires auth, see
+                // EditorImageController/EditorImageService's own docs for why.
                 .anyRequest().authenticated()
             )
             .addFilterBefore(agentTokenFilter, UsernamePasswordAuthenticationFilter.class)

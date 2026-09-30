@@ -29,6 +29,20 @@ public class EditorImage {
     @Column(name = "created_at", nullable = false)
     private OffsetDateTime createdAt;
 
+    /** Unguessable public identifier — never the sequential {@code id}. See V206's own comment
+     *  for why. */
+    @Column(nullable = false, unique = true)
+    private java.util.UUID token;
+
+    /** Scope for the GET endpoint's access check — both null means platform-wide (gated to MSSP
+     *  staff instead of a specific org/project). Best-effort: captured from whatever context the
+     *  uploading form has at upload time, since the editor is used from platform-wide forms too. */
+    @Column(name = "organization_id")
+    private Long organizationId;
+
+    @Column(name = "project_id")
+    private Long projectId;
+
     public Long getId() { return id; }
     public String getContentType() { return contentType; }
     public void setContentType(String contentType) { this.contentType = contentType; }
@@ -42,4 +56,10 @@ public class EditorImage {
     public void setUploadedBy(Long uploadedBy) { this.uploadedBy = uploadedBy; }
     public OffsetDateTime getCreatedAt() { return createdAt; }
     public void setCreatedAt(OffsetDateTime createdAt) { this.createdAt = createdAt; }
+    public java.util.UUID getToken() { return token; }
+    public void setToken(java.util.UUID token) { this.token = token; }
+    public Long getOrganizationId() { return organizationId; }
+    public void setOrganizationId(Long organizationId) { this.organizationId = organizationId; }
+    public Long getProjectId() { return projectId; }
+    public void setProjectId(Long projectId) { this.projectId = projectId; }
 }

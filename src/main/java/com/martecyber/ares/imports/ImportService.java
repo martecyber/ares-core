@@ -978,7 +978,8 @@ public class ImportService {
         if (pd.getCvssScore() == null || pd.getCvssVersion() == null) return;
         scoreTypeRepo.findByTitle(pd.getCvssVersion()).ifPresentOrElse(type -> {
             String metadata = null;
-            if (pd.getCvssVector() != null && !pd.getCvssVector().isBlank()) {
+            boolean hasVector = pd.getCvssVector() != null && !pd.getCvssVector().isBlank();
+            if (hasVector) {
                 try {
                     metadata = objectMapper.writeValueAsString(Map.of("vector", pd.getCvssVector()));
                 } catch (Exception ignored) { /* best-effort, score itself still persists */ }
@@ -994,7 +995,12 @@ public class ImportService {
                 });
             score.setTypeId(type.getId());
             score.setScore(pd.getCvssScore());
-            score.setMetadata(metadata);
+            // This sync's record may simply not carry full plugin/CVSS detail (some sources —
+            // Tenable observed — only include it on a vulnerability's first report, not every
+            // re-sync of an already-open one); don't let that transient gap null out a
+            // previously-captured vector the way createScoreIfPresent/refresh already protects
+            // the score value itself against a transient score gap.
+            if (hasVector || score.getMetadata() == null) score.setMetadata(metadata);
             detectionScoreRepo.save(score);
         }, () -> log.warn("Unknown score type '{}' for detection {}, skipping DetectionScore refresh",
             pd.getCvssVersion(), detectionId));

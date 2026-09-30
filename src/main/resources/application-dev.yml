@@ -46,7 +46,7 @@ ares:
   #   • ui    → ares-ui/package.json
   timezone: "UTC"
   versions:
-    api:   "1.0.0-beta41"
-    ui:    "1.0.0-beta66"
+    api:   "1.0.0-beta42"
+    ui:    "1.0.0-beta67"
     cli:   "1.0.0-beta4"
     agent: "1.0.0-beta21"

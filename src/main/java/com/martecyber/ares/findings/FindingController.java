@@ -97,25 +97,6 @@ public class FindingController {
         return PagedResponse.of(service.list(projectId, projectIds, organizationId, includeDrafts, severity, statusId, iterationLabel, q, page, size), f -> f);
     }
 
-    /** Distinct assets touched by every finding matching the given filter (same params/
-     *  coexistence rule as the list endpoint above) — for the "affected assets" summary panel on
-     *  findings-list views. Aggregates across the whole matching set, not just one page. */
-    @GetMapping("/affected-assets")
-    @PreAuthorize("hasAnyRole('MSSP_ADMIN','MSSP_OPERATOR','CLIENT_USER','CLIENT_ADMIN')")
-    public List<com.martecyber.ares.affections.dto.AffectedAssetDto> affectedAssets(
-        @RequestParam(required = false) Long projectId,
-        @RequestParam(required = false) List<Long> projectIds,
-        @RequestParam(required = false) Long organizationId,
-        @RequestParam(defaultValue = "false") boolean includeDrafts,
-        @RequestParam(required = false) List<String> severity,
-        @RequestParam(required = false) List<Long> statusId,
-        @RequestParam(required = false) String iterationLabel,
-        @RequestParam(required = false) String q,
-        @RequestParam(required = false) String aql
-    ) {
-        return service.affectedAssets(projectId, projectIds, organizationId, includeDrafts, severity, statusId, iterationLabel, q, aql);
-    }
-
     @GetMapping("/by-asset")
     @PreAuthorize("hasAnyRole('MSSP_ADMIN','MSSP_OPERATOR','CLIENT_USER','CLIENT_ADMIN')")
     public List<FindingDto> listByAsset(
@@ -164,6 +145,15 @@ public class FindingController {
     @PreAuthorize("hasAnyRole('MSSP_ADMIN','MSSP_OPERATOR')")
     public FindingDto publish(@PathVariable Long id, @RequestParam Long projectId) {
         return service.publish(id, projectId);
+    }
+
+    /** Moves an already-published finding to a different iteration in a MONITOR project — see
+     *  {@link FindingService#moveIteration} for why this exists and what it changes. */
+    @PostMapping("/{id}/move-iteration")
+    @PreAuthorize("hasAnyRole('MSSP_ADMIN','MSSP_OPERATOR')")
+    public FindingDto moveIteration(@PathVariable Long id, @RequestParam Long projectId,
+                                     @Valid @RequestBody MoveIterationRequest req) {
+        return service.moveIteration(id, projectId, req.iterationLabel());
     }
 
     @PostMapping("/publish-batch")
