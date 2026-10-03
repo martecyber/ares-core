@@ -3,6 +3,7 @@ package com.martecyber.ares.plugins;
 import com.martecyber.ares.common.NotFoundException;
 import com.martecyber.ares.plugins.dto.PluginDto;
 import com.martecyber.ares.plugins.dto.RepositoryPluginVersionsDto;
+import com.martecyber.ares.storage.StorageService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -35,8 +36,10 @@ import java.util.Set;
  * Install/enable/disable/uninstall lifecycle for plugin JARs — see {@link PluginLoader} for how
  * an installed, enabled plugin's classes actually become live inside the running app. {@code
  * ares.plugins.directory} (default {@code plugins/}, override via {@code ARES_PLUGINS_DIRECTORY})
- * is where every installed JAR lives on disk; the {@code plugin} table (see {@link Plugin}) is the
- * source of truth for what's installed and whether it's enabled — {@link
+ * is a local cache of every installed JAR — the {@link StorageService}-backed {@code plugins}
+ * bucket is the durable source for the JAR bytes themselves (so a wiped/non-persistent local
+ * volume can self-heal, see {@link #loadInstalledPlugins}), while the {@code plugin} table (see
+ * {@link Plugin}) is the source of truth for what's installed and whether it's enabled — {@link
  * com.martecyber.ares.startup.StartupCleanupService} calls {@link #loadInstalledPlugins} once at
  * boot to load every enabled row's JAR.
  *
@@ -69,6 +72,7 @@ public class PluginService {
     private final PluginLoader loader;
     private final PluginRepositorySourceRepository repoSourceRepo;
     private final PluginRepositoryClient repoClient;
+    private final StorageService storage;
     private final String pluginsDirectory;
     private final HttpClient http;
 
@@ -77,14 +81,17 @@ public class PluginService {
     // application.yml/env for a real bean, same default strings VersionsController itself uses.
     @Value("${ares.versions.api:1.0.0-beta4}") private String apiVersion = "1.0.0-beta4";
     @Value("${ares.versions.ui:1.0.0-beta3}") private String uiVersion = "1.0.0-beta3";
+    @Value("${ares.storage.s3.buckets.plugins:ares-plugins}") private String pluginsBucket = "ares-plugins";
 
     public PluginService(PluginRepository repo, PluginLoader loader,
                           PluginRepositorySourceRepository repoSourceRepo, PluginRepositoryClient repoClient,
+                          StorageService storage,
                           @Value("${ares.plugins.directory:plugins}") String pluginsDirectory) {
         this.repo = repo;
         this.loader = loader;
         this.repoSourceRepo = repoSourceRepo;
         this.repoClient = repoClient;
+        this.storage = storage;
         this.pluginsDirectory = pluginsDirectory;
         this.http = HttpClient.newBuilder()
             .connectTimeout(Duration.ofSeconds(15))
@@ -97,17 +104,45 @@ public class PluginService {
     }
 
     /** Called once at boot by {@code StartupCleanupService} — loads every enabled row's JAR, in
-     *  dependency order, so its handler(s) are registered before any Workflow could reference it. */
+     *  dependency order, so its handler(s) are registered before any Workflow could reference it.
+     *  {@link #ensureLocalCopy} self-heals the local {@code plugins.directory} cache from {@link
+     *  StorageService} if a JAR went missing on disk (e.g. a non-persistent volume was reset —
+     *  the exact failure this two-tier cache/durable-store split exists to prevent), and backfills
+     *  any pre-existing install (from before this JAR was ever written to storage) the other way,
+     *  so every installed plugin ends up durable without needing to be reinstalled by hand. */
     public void loadInstalledPlugins() {
         for (Plugin p : topologicalOrder(repo.findAllByOrderByInstalledAtAsc())) {
             if (!p.isEnabled()) continue;
             try {
                 File jar = jarFile(p.getFilename());
+                ensureLocalCopy(jar, p.getFilename());
                 PluginManifest manifest = loader.readManifest(jar);
                 loader.load(manifest, jar);
             } catch (Exception e) {
                 log.error("Failed to load plugin '{}' at boot: {}", p.getPluginId(), e.getMessage(), e);
             }
+        }
+    }
+
+    private void ensureLocalCopy(File jar, String filename) throws IOException {
+        if (jar.exists()) {
+            backfillToStorage(jar, filename);
+            return;
+        }
+        log.warn("Plugin JAR '{}' missing from local cache ({}), restoring from storage…", filename, pluginsDirectory);
+        byte[] content = storage.get(pluginsBucket, filename);
+        Files.createDirectories(jar.getParentFile().toPath());
+        Files.write(jar.toPath(), content);
+    }
+
+    private void backfillToStorage(File jar, String filename) {
+        try {
+            if (storage.exists(pluginsBucket, filename)) return;
+            log.info("Backfilling plugin JAR '{}' into storage", filename);
+            storage.ensureBucketExists(pluginsBucket);
+            storage.put(pluginsBucket, filename, "application/java-archive", Files.readAllBytes(jar.toPath()));
+        } catch (Exception e) {
+            log.warn("Could not backfill plugin JAR '{}' into storage: {}", filename, e.getMessage());
         }
     }
 
@@ -254,6 +289,16 @@ public class PluginService {
             throw new ResponseStatusException(HttpStatus.UNPROCESSABLE_ENTITY, e.getMessage());
         }
 
+        // Best-effort: `dest` just proved it loads, so it's already usable regardless of whether
+        // this durable copy succeeds — a flaky storage backend must not block an otherwise-good
+        // install. loadInstalledPlugins' own backfill step catches this up on the next boot.
+        try {
+            storage.ensureBucketExists(pluginsBucket);
+            storage.put(pluginsBucket, filename, "application/java-archive", Files.readAllBytes(dest.toPath()));
+        } catch (Exception e) {
+            log.warn("Could not persist plugin '{}' JAR to storage: {}", manifest.id(), e.getMessage());
+        }
+
         existingOpt.ifPresent(old -> {
             // Different version numbers normally produce different filenames (see `filename`
             // above) — only delete the old file if it's not the exact one `dest` just
@@ -261,6 +306,8 @@ public class PluginService {
             if (!old.getFilename().equals(filename)) {
                 try { Files.deleteIfExists(jarFile(old.getFilename()).toPath()); }
                 catch (IOException e) { log.warn("Could not delete previous JAR for plugin '{}': {}", old.getPluginId(), e.getMessage()); }
+                try { storage.delete(pluginsBucket, old.getFilename()); }
+                catch (Exception e) { log.warn("Could not delete previous stored JAR for plugin '{}': {}", old.getPluginId(), e.getMessage()); }
             }
             repo.delete(old);
         });
@@ -306,6 +353,7 @@ public class PluginService {
             }
             try {
                 File jar = jarFile(p.getFilename());
+                ensureLocalCopy(jar, p.getFilename());
                 loader.load(loader.readManifest(jar), jar);
             } catch (IOException e) {
                 throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "Could not read plugin.json: " + e.getMessage());
@@ -351,6 +399,11 @@ public class PluginService {
             Files.deleteIfExists(jarFile(p.getFilename()).toPath());
         } catch (IOException e) {
             log.warn("Could not delete JAR for plugin '{}': {}", p.getPluginId(), e.getMessage());
+        }
+        try {
+            storage.delete(pluginsBucket, p.getFilename());
+        } catch (Exception e) {
+            log.warn("Could not delete stored JAR for plugin '{}': {}", p.getPluginId(), e.getMessage());
         }
         repo.delete(p);
         log.info("Uninstalled plugin '{}'", p.getPluginId());

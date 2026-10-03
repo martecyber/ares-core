@@ -88,10 +88,12 @@ ares:
     # Secret comes from env in prod. Dev profile overrides with a fixed value.
     secret: ${ARES_JWT_SECRET:}
   storage:
-    # "local" (default) needs no extra service — files live under local.root-dir on disk. Set
-    # to "s3" to use an S3-compatible object store instead (self-hosted or cloud); the two are
-    # mutually exclusive, picked at boot via com.martecyber.ares.storage.StorageService's two
-    # @ConditionalOnProperty implementations.
+    # "local" (default) needs no extra service — files live under local.root-dir on disk. Also
+    # covers NFS: point local.root-dir at an NFS mount managed at the OS/container level, no
+    # dedicated NFS backend exists here. Set to "s3"/"smb"/"azure" to use an S3-compatible object
+    # store, an SMB2/3 network share, or Azure Blob Storage instead; exactly one is active at a
+    # time, picked at boot via com.martecyber.ares.storage.StorageService's @ConditionalOnProperty
+    # implementations.
     type: ${ARES_STORAGE_TYPE:local}
     local:
       root-dir: ${ARES_STORAGE_LOCAL_ROOT_DIR:/data/storage}
@@ -101,8 +103,9 @@ ares:
       access-key: ${ARES_S3_ACCESS_KEY:aresadmin}
       secret-key: ${ARES_S3_SECRET_KEY:aresadminpass}
       path-style: true
-      # Bucket/directory names — used as-is by the local backend too (as subdirectory names
-      # under local.root-dir), so this block applies regardless of ares.storage.type.
+      # Bucket/directory names — used as-is by every backend (as subdirectory names under
+      # local.root-dir, as the folder under the SMB share/base-path, as Azure container names),
+      # so this block applies regardless of ares.storage.type.
       buckets:
         evidence: ares-evidence
         report-templates: ares-report-templates
@@ -110,6 +113,18 @@ ares:
         wordlists: ares-wordlists
         favicons: ares-favicons
         editor-images: ares-editor-images
+        plugins: ares-plugins
+    smb:
+      host: ${ARES_SMB_HOST:}
+      port: ${ARES_SMB_PORT:445}
+      share: ${ARES_SMB_SHARE:}
+      domain: ${ARES_SMB_DOMAIN:}
+      username: ${ARES_SMB_USERNAME:}
+      password: ${ARES_SMB_PASSWORD:}
+      # Optional subdirectory under the share that buckets are created in, e.g. "ares".
+      base-path: ${ARES_SMB_BASE_PATH:}
+    azure:
+      connection-string: ${ARES_AZURE_CONNECTION_STRING:}
   integrations:
     # 32-byte (256-bit) base64-encoded key for AES-256-GCM credential encryption.
     # Generate with: openssl rand -base64 32

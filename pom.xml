@@ -195,6 +195,20 @@
             <version>2.40.13</version>
         </dependency>
 
+        <!-- SMB2/3 network storage -->
+        <dependency>
+            <groupId>com.hierynomus</groupId>
+            <artifactId>smbj</artifactId>
+            <version>0.14.0</version>
+        </dependency>
+
+        <!-- Azure Blob Storage -->
+        <dependency>
+            <groupId>com.azure</groupId>
+            <artifactId>azure-storage-blob</artifactId>
+            <version>12.30.0</version>
+        </dependency>
+
         <!-- DOCX template engine (poi-tl) -->
         <dependency>
             <groupId>com.deepoove</groupId>

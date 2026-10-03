@@ -31,6 +31,11 @@ public class LocalFilesystemStorageService implements StorageService {
     }
 
     @Override
+    public boolean exists(String bucket, String key) {
+        return Files.exists(objectPath(bucket, key));
+    }
+
+    @Override
     public void put(String bucket, String key, String contentType, byte[] content) {
         try {
             Path path = objectPath(bucket, key);

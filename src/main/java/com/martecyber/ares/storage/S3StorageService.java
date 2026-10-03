@@ -10,7 +10,9 @@ import software.amazon.awssdk.services.s3.model.CreateBucketRequest;
 import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.HeadBucketRequest;
+import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
 import software.amazon.awssdk.services.s3.model.NoSuchBucketException;
+import software.amazon.awssdk.services.s3.model.NoSuchKeyException;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 
 @Service
@@ -34,6 +36,16 @@ public class S3StorageService implements StorageService {
             s3.createBucket(CreateBucketRequest.builder().bucket(bucket).build());
         } catch (Exception e) {
             log.warn("Could not verify/create S3 bucket '{}': {}", bucket, e.getMessage());
+        }
+    }
+
+    @Override
+    public boolean exists(String bucket, String key) {
+        try {
+            s3.headObject(HeadObjectRequest.builder().bucket(bucket).key(key).build());
+            return true;
+        } catch (NoSuchKeyException e) {
+            return false;
         }
     }
 

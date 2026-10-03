@@ -10,6 +10,8 @@ public interface StorageService {
 
     void ensureBucketExists(String bucket);
 
+    boolean exists(String bucket, String key);
+
     void put(String bucket, String key, String contentType, byte[] content);
 
     byte[] get(String bucket, String key);

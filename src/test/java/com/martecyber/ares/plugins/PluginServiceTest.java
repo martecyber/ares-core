@@ -1,5 +1,6 @@
 package com.martecyber.ares.plugins;
 
+import com.martecyber.ares.storage.StorageService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -35,7 +36,8 @@ class PluginServiceTest {
         loader = mock(PluginLoader.class);
         var repoSourceRepo = mock(PluginRepositorySourceRepository.class);
         var repoClient = mock(PluginRepositoryClient.class);
-        service = new PluginService(repo, loader, repoSourceRepo, repoClient, pluginsDir.toString());
+        var storage = mock(StorageService.class);
+        service = new PluginService(repo, loader, repoSourceRepo, repoClient, storage, pluginsDir.toString());
         when(repo.save(any())).thenAnswer(inv -> inv.getArgument(0));
     }
 
@@ -217,6 +219,7 @@ class PluginServiceTest {
         p.setEnabled(false);
         when(repo.findById(1L)).thenReturn(Optional.of(p));
         when(loader.readManifest(any(File.class))).thenReturn(manifest("acme-widget", "1.0.0"));
+        java.nio.file.Files.write(pluginsDir.resolve(p.getFilename()), new byte[]{0});
 
         service.setEnabled(1L, true);
 
@@ -318,6 +321,7 @@ class PluginServiceTest {
 
         when(repo.findAllByOrderByInstalledAtAsc()).thenReturn(List.of(toLoad, disabled));
         when(loader.readManifest(any(File.class))).thenReturn(manifest("acme-widget", "1.0.0"));
+        java.nio.file.Files.write(pluginsDir.resolve(toLoad.getFilename()), new byte[]{0});
 
         service.loadInstalledPlugins();
 
@@ -350,6 +354,8 @@ class PluginServiceTest {
         List<String> loadOrder = new java.util.ArrayList<>();
         doAnswer(inv -> { loadOrder.add(((PluginManifest) inv.getArgument(0)).id()); return null; })
             .when(loader).load(any(), any());
+        java.nio.file.Files.write(pluginsDir.resolve(base.getFilename()), new byte[]{0});
+        java.nio.file.Files.write(pluginsDir.resolve(dependent.getFilename()), new byte[]{0});
 
         service.loadInstalledPlugins();
 
