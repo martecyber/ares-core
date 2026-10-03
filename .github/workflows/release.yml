@@ -57,7 +57,10 @@ jobs:
           {
             echo "docker_tags<<EOF"
             echo "ghcr.io/martecyber/ares-core:${VERSION}"
-            if [ "$CHANNEL" = "release" ]; then echo "ghcr.io/martecyber/ares-core:latest"; fi
+            # :latest always follows the most recent release workflow run, release or prerelease
+            # alike — a plain `docker pull` always gets the newest build regardless of channel.
+            # Revisit if/when that stops being the desired semantics for :latest.
+            echo "ghcr.io/martecyber/ares-core:latest"
             echo "EOF"
           } >> "$GITHUB_OUTPUT"
 
