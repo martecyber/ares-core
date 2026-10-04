@@ -202,6 +202,16 @@
             <version>0.14.0</version>
         </dependency>
 
+        <!-- Netty SOCKS5 proxy support, for the optional ares.network.socks-proxy.* feature
+             (routes Redis connections through a SOCKS5 proxy) — already pulled in transitively by
+             azure-core-http-netty, declared explicitly since it's used directly, not just along
+             for the ride. -->
+        <dependency>
+            <groupId>io.netty</groupId>
+            <artifactId>netty-handler-proxy</artifactId>
+            <version>4.1.128.Final</version>
+        </dependency>
+
         <!-- Azure Blob Storage -->
         <dependency>
             <groupId>com.azure</groupId>

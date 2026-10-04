@@ -6,11 +6,14 @@ import com.hierynomus.mssmb2.SMB2CreateDisposition;
 import com.hierynomus.mssmb2.SMB2CreateOptions;
 import com.hierynomus.mssmb2.SMB2ShareAccess;
 import com.hierynomus.smbj.SMBClient;
+import com.hierynomus.smbj.SmbConfig;
 import com.hierynomus.smbj.auth.AuthenticationContext;
 import com.hierynomus.smbj.connection.Connection;
 import com.hierynomus.smbj.session.Session;
 import com.hierynomus.smbj.share.DiskShare;
 import com.hierynomus.smbj.share.File;
+import com.martecyber.ares.net.Socks5SocketFactory;
+import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -50,7 +53,19 @@ public class SmbStorageService implements StorageService {
     @Value("${ares.storage.smb.base-path:}")
     private String basePath;
 
-    private final SMBClient client = new SMBClient();
+    @Value("${ares.network.socks-proxy.enabled:false}")
+    private boolean socksProxyEnabled;
+
+    private SMBClient client;
+
+    @PostConstruct
+    private void init() {
+        // Field initializer won't do here — @Value fields aren't populated yet when field
+        // initializers run, and socksProxyEnabled above is read right here.
+        client = socksProxyEnabled
+            ? new SMBClient(SmbConfig.builder().withSocketFactory(new Socks5SocketFactory()).build())
+            : new SMBClient();
+    }
 
     @Override
     public void ensureBucketExists(String bucket) {

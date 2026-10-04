@@ -125,6 +125,21 @@ ares:
       base-path: ${ARES_SMB_BASE_PATH:}
     azure:
       connection-string: ${ARES_AZURE_CONNECTION_STRING:}
+  network:
+    # Routes JDBC (Postgres), SMB, and Redis connections through a SOCKS5 proxy instead of
+    # connecting directly — generic, not tied to any specific proxy. One real use case: a
+    # sandboxed container host (no NET_ADMIN/TUN) running a VPN client in userspace/netstack mode,
+    # which exposes a local SOCKS5 proxy instead of a network interface. Disabled by default — no
+    # behavior change for a normal deployment. The Postgres JDBC URL needs its own
+    # `socketFactory=com.martecyber.ares.net.Socks5SocketFactory` query parameter added by hand
+    # when enabling this (see Socks5SocketFactory's own doc comment for why that one isn't wired
+    # here); SMB and Redis pick it up automatically from this flag.
+    socks-proxy:
+      enabled: ${ARES_SOCKS_PROXY_ENABLED:false}
+      # Also read directly from these same two env vars by Socks5SocketFactory itself (reflection-
+      # instantiated by pgjdbc, outside Spring's lifecycle — see its own doc comment).
+      host: ${ARES_SOCKS_PROXY_HOST:}
+      port: ${ARES_SOCKS_PROXY_PORT:1080}
   integrations:
     # 32-byte (256-bit) base64-encoded key for AES-256-GCM credential encryption.
     # Generate with: openssl rand -base64 32
