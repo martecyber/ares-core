@@ -47,6 +47,18 @@ spring:
           max-active: 16
           max-idle: 8
 
+# Error tracking — deliberately no `dsn:` line here. Spring Boot's own env-var binding maps
+# SENTRY_DSN straight to sentry.dsn with no YAML needed, and SentryAutoConfiguration is itself
+# @ConditionalOnProperty("sentry.dsn") — an explicit `dsn: ${SENTRY_DSN:}` would resolve to an
+# empty string when unset instead of a genuinely absent property, which that condition treats as
+# "set" and tries to initialize anyway. Works against a self-hosted GlitchTip instance too (same
+# wire protocol as Sentry) — just point SENTRY_DSN at its DSN URL. See
+# com.martecyber.ares.config.SentrySocksProxyConfig for how this also routes through
+# ares.network.socks-proxy when that's enabled.
+sentry:
+  environment: ${ARES_ENVIRONMENT:production}
+  traces-sample-rate: 0
+
 springdoc:
   api-docs:
     path: /v3/api-docs

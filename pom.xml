@@ -212,6 +212,15 @@
             <version>4.1.128.Final</version>
         </dependency>
 
+        <!-- Error tracking — Sentry's own protocol, works just as well against a self-hosted
+             GlitchTip instance (same wire format). Disabled unless sentry.dsn (SENTRY_DSN env
+             var) is set — see SentryAutoConfiguration's own @ConditionalOnProperty. -->
+        <dependency>
+            <groupId>io.sentry</groupId>
+            <artifactId>sentry-spring-boot-starter-jakarta</artifactId>
+            <version>8.59.0</version>
+        </dependency>
+
         <!-- Azure Blob Storage -->
         <dependency>
             <groupId>com.azure</groupId>
