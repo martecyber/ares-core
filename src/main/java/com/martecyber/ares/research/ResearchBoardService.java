@@ -293,10 +293,8 @@ public class ResearchBoardService {
             throw new IllegalArgumentException("Affection " + affectionId + " does not belong to this project");
         }
 
-        if (boardDetectionRepo.findByIdBoardIdAndRemovedAtIsNull(id).isEmpty()) {
-            throw new IllegalArgumentException("Cannot resolve an empty Research Board — add detections first");
-        }
-
+        // No empty-board check here, unlike notAffected: a research made of notes/images alone
+        // (no detections) is a legitimate thing to escalate — the affection already exists.
         OffsetDateTime now = OffsetDateTime.now();
         board.setStatus("archived");
         board.setVerdict("affected");

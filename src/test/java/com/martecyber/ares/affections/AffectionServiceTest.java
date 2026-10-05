@@ -183,6 +183,25 @@ class AffectionServiceTest {
         verify(repo).touchUpdatedAt(eq(1L), any());
     }
 
+    // ── delete ───────────────────────────────────────────────────────
+
+    @Test
+    void deleteRemovesTheAffectionAfterCheckingProjectAccess() {
+        affection(1L, 100L);
+        finding(100L, 5L, "F-100");
+
+        service.delete(1L);
+
+        verify(orgScope).assertProjectAccess(any(), eq(5L));
+        verify(repo).deleteById(1L);
+    }
+
+    @Test
+    void deleteOfAnUnknownAffectionIs404AndDeletesNothing() {
+        assertThrows(NotFoundException.class, () -> service.delete(999L));
+        verify(repo, never()).deleteById(any());
+    }
+
     // ── setAffectsForDetected (the "III model") ─────────────────────
 
     @Test
@@ -388,13 +407,6 @@ class AffectionServiceTest {
         when(repo.existsById(1L)).thenReturn(false);
         assertThrows(NotFoundException.class, () -> service.delete(1L));
         verify(repo, never()).deleteById(any());
-    }
-
-    @Test
-    void deleteRemovesAnExistingAffection() {
-        when(repo.existsById(1L)).thenReturn(true);
-        service.delete(1L);
-        verify(repo).deleteById(1L);
     }
 
     // ── access control ───────────────────────────────────────────────

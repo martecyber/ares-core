@@ -280,7 +280,7 @@ public class AffectionService {
 
     @Transactional
     public void delete(Long id) {
-        if (!repo.existsById(id)) throw NotFoundException.of("affection", id);
+        getEntity(id); // 404 + project-access check, same as every other mutation here
         repo.deleteById(id);
     }
 

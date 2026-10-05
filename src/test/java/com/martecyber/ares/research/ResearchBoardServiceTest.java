@@ -354,12 +354,16 @@ class ResearchBoardServiceTest {
     }
 
     @Test
-    void archiveAsAffectedRejectsAnEmptyBoard() {
-        activeBoard(1L, 5L, 1L);
+    void archiveAsAffectedAllowsABoardWithNoDetections() {
+        ResearchBoard board = activeBoard(1L, 5L, 1L);
         when(boardDetectionRepo.findByIdBoardIdAndRemovedAtIsNull(1L)).thenReturn(List.of());
         stubAffection(900L, 500L, 5L);
 
-        assertThrows(IllegalArgumentException.class, () -> service.archiveAsAffected(1L, 900L));
+        service.archiveAsAffected(1L, 900L);
+
+        assertEquals("archived", board.getStatus());
+        assertEquals("affected", board.getVerdict());
+        assertEquals(900L, board.getResultAffectionId());
     }
 
     @Test
