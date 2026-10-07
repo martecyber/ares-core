@@ -351,9 +351,18 @@ public class PluginService {
                             + (dep == null ? "not installed" : "disabled") + " — enable that first");
                 }
             }
+            File jar = jarFile(p.getFilename());
             try {
-                File jar = jarFile(p.getFilename());
                 ensureLocalCopy(jar, p.getFilename());
+            } catch (IOException | RuntimeException e) {
+                // A missing JAR (local cache wiped AND nothing in storage) used to surface here as
+                // an anonymous 500. It is a state the admin can act on, so say so.
+                throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "Cannot enable '" + p.getPluginId() + "': its JAR (" + p.getFilename() + ") is missing from "
+                        + "the plugins directory and could not be restored from storage — uninstall and reinstall "
+                        + "the plugin. (" + e.getMessage() + ")");
+            }
+            try {
                 loader.load(loader.readManifest(jar), jar);
             } catch (IOException e) {
                 throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "Could not read plugin.json: " + e.getMessage());

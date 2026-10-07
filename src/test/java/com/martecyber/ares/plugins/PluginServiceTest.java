@@ -25,6 +25,7 @@ class PluginServiceTest {
 
     private PluginRepository repo;
     private PluginLoader loader;
+    private StorageService storage;
     private PluginService service;
 
     @TempDir
@@ -36,7 +37,7 @@ class PluginServiceTest {
         loader = mock(PluginLoader.class);
         var repoSourceRepo = mock(PluginRepositorySourceRepository.class);
         var repoClient = mock(PluginRepositoryClient.class);
-        var storage = mock(StorageService.class);
+        storage = mock(StorageService.class);
         service = new PluginService(repo, loader, repoSourceRepo, repoClient, storage, pluginsDir.toString());
         when(repo.save(any())).thenAnswer(inv -> inv.getArgument(0));
     }
@@ -226,6 +227,24 @@ class PluginServiceTest {
         verify(loader).load(argThat(m -> m.id().equals("acme-widget")), any(File.class));
         verify(loader, never()).unload(any());
         assertTrue(p.isEnabled());
+    }
+
+    @Test
+    void setEnabledTrueExplainsAMissingJarInsteadOfFailingWithAnAnonymous500() {
+        Plugin p = new Plugin();
+        p.setPluginId("acme-widget");
+        p.setFilename("acme-widget-1.0.0.jar");
+        p.setEnabled(false);
+        when(repo.findById(1L)).thenReturn(Optional.of(p));
+        // Nothing on disk (pluginsDir is empty) and storage has no copy either.
+        when(storage.get(any(), eq("acme-widget-1.0.0.jar"))).thenThrow(new java.io.UncheckedIOException(new java.io.FileNotFoundException("gone")));
+
+        var ex = assertThrows(ResponseStatusException.class, () -> service.setEnabled(1L, true));
+
+        assertEquals(org.springframework.http.HttpStatus.CONFLICT, ex.getStatusCode());
+        assertTrue(ex.getReason().contains("reinstall"));
+        assertFalse(p.isEnabled(), "a failed enable must not flip the flag");
+        verify(loader, never()).load(any(), any());
     }
 
     @Test
