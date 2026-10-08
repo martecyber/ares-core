@@ -54,7 +54,7 @@ public interface FindingRepository extends JpaRepository<Finding, Long>, JpaSpec
     @Query("SELECT COUNT(f) FROM Finding f WHERE f.projectId = :projectId AND f.isDraft = false AND f.iterationLabel = :label")
     long countPublishedByProjectAndLabel(@Param("projectId") Long projectId, @Param("label") String label);
 
-    @Query("SELECT f FROM Finding f WHERE f.projectId = :projectId AND f.isReadyToReport = true AND f.isDraft = false ORDER BY f.createdAt ASC")
+    @Query("SELECT f FROM Finding f WHERE f.projectId = :projectId AND f.isReadyToReport = true AND f.isDraft = false ORDER BY f.reportedAt ASC, f.id ASC")
     java.util.List<Finding> findReadyToReport(@Param("projectId") Long projectId);
 
     @Query(value = """

@@ -202,6 +202,17 @@ public class ReportGenerationService {
             .orElse(false);
     }
 
+    /** Findings in the order they were published, which is the order of their codes
+     *  (PRJ-1, PRJ-2, ...). {@code findAllById} and creation time say nothing about that, and a
+     *  report listing PRJ-7 before PRJ-2 reads as broken. Id breaks ties and covers any
+     *  finding without a publication date. */
+    static List<Finding> inPublicationOrder(Collection<Finding> findings) {
+        return findings.stream()
+            .sorted(Comparator.comparing(Finding::getReportedAt, Comparator.nullsLast(Comparator.naturalOrder()))
+                .thenComparing(Finding::getId))
+            .toList();
+    }
+
     /**
      * Creates a report record with selected findings and custom field content.
      * No document is generated — call generateDocument() separately.
@@ -220,14 +231,14 @@ public class ReportGenerationService {
         if (isRetestType(project.getTypeId())) {
             List<Long> linkedIds = retestFindingRepo.findByRetestProjectIdOrderByLinkedAtDesc(project.getId())
                 .stream().map(ProjectRetestFinding::getFindingId).toList();
-            findings = findingRepo.findAllById(linkedIds);
+            findings = inPublicationOrder(findingRepo.findAllById(linkedIds));
         } else if (req.findingIds() != null) {
             // An explicit empty list (as opposed to the field being entirely absent, which falls
             // through to the strategies below) means the caller deliberately wants a report with
             // no findings — allowed, not a validation error.
-            findings = findingRepo.findAllById(req.findingIds()).stream()
+            findings = inPublicationOrder(findingRepo.findAllById(req.findingIds()).stream()
                 .filter(f -> f.getProjectId().equals(req.projectId()) && !f.isDraft())
-                .toList();
+                .toList());
         } else if (req.iterationFrom() != null && req.iterationTo() != null) {
             findings = findingRepo.findByProjectAndIterationRange(
                 req.projectId(), req.iterationFrom(), req.iterationTo());
@@ -282,7 +293,7 @@ public class ReportGenerationService {
 
         List<Long> findingIds = reportFindingRepo.findByReportId(reportId).stream()
             .map(ReportFinding::getFindingId).toList();
-        List<Finding> findings = findingRepo.findAllById(findingIds);
+        List<Finding> findings = inPublicationOrder(findingRepo.findAllById(findingIds));
 
         List<ReportField> savedFields = reportFieldRepo.findByReportId(reportId);
         Map<String, String> customFields = savedFields.stream()
@@ -327,7 +338,7 @@ public class ReportGenerationService {
 
         List<Long> findingIds = reportFindingRepo.findByReportId(reportId).stream()
             .map(ReportFinding::getFindingId).toList();
-        List<Finding> findings = findingRepo.findAllById(findingIds);
+        List<Finding> findings = inPublicationOrder(findingRepo.findAllById(findingIds));
         List<ReportField> savedFields = reportFieldRepo.findByReportId(reportId);
 
         // Batch-load lookup tables upfront
