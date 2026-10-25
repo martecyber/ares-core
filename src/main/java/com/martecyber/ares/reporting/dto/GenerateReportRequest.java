@@ -26,5 +26,26 @@ public record GenerateReportRequest(
      */
     String iterationTo,
     /** Custom field content: field type name (slug) → HTML content. */
-    Map<String, String> customFields
-) {}
+    Map<String, String> customFields,
+    /**
+     * Extra, named finding sections besides the default one ({@code findingIds}). Each becomes its
+     * own template variable (see {@link FindingSection}); null/empty keeps the single-list model.
+     */
+    List<FindingSection> findingSections
+) {
+
+    /** Backwards-compatible constructor for callers that don't use sections. */
+    public GenerateReportRequest(Long projectId, Long organizationId, Long templateId, String title,
+                                 List<Long> findingIds, String iterationFrom, String iterationTo,
+                                 Map<String, String> customFields) {
+        this(projectId, organizationId, templateId, title, findingIds, iterationFrom, iterationTo, customFields, null);
+    }
+
+    /**
+     * One extra findings section. {@code variable} is the template variable name ({@code {{?variable}}}
+     * loops over its findings, with {@code variableCount}/{@code variableEmpty}/{@code variableNotEmpty}
+     * and {@code variableTitle} alongside); {@code label} is the human-readable section name, exposed
+     * as {@code {{variableTitle}}}.
+     */
+    public record FindingSection(String variable, String label, List<Long> findingIds) {}
+}

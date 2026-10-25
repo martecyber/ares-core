@@ -144,7 +144,8 @@ public class ReportService {
     // ── Helpers ───────────────────────────────────────────────────────────────
 
     private ReportDto toDto(Report r) {
-        int findingCount = findingLinkRepo.findByReportId(r.getId()).size();
+        int findingCount = (int) findingLinkRepo.findByReportId(r.getId()).stream()
+            .map(ReportFinding::getFindingId).distinct().count();
         List<ReportField> fields = fieldRepo.findByReportId(r.getId());
         return ReportDto.from(r, findingCount, fields);
     }

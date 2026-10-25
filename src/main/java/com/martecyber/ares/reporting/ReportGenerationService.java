@@ -16,6 +16,7 @@ import org.commonmark.parser.Parser;
 import org.commonmark.renderer.html.HtmlRenderer;
 
 import com.deepoove.poi.config.Configure;
+import com.deepoove.poi.config.ConfigureBuilder;
 import com.deepoove.poi.data.Numberings;
 import com.deepoove.poi.data.NumberingRenderData;
 import com.deepoove.poi.plugin.table.LoopRowTableRenderPolicy;
@@ -267,6 +268,26 @@ public class ReportGenerationService {
 
         findings.forEach(f -> reportFindingRepo.save(new ReportFinding(report.getId(), f.getId())));
 
+        // Extra named sections (not applicable to RETEST reports, whose findings are the linked set)
+        int sectionFindingCount = 0;
+        if (req.findingSections() != null && !isRetestType(project.getTypeId())) {
+            Set<String> seenVariables = new HashSet<>();
+            for (GenerateReportRequest.FindingSection sec : req.findingSections()) {
+                validateSectionVariable(sec.variable());
+                if (!seenVariables.add(sec.variable())) {
+                    throw new IllegalArgumentException("Duplicate section variable '" + sec.variable() + "'");
+                }
+                String label = sec.label() != null && !sec.label().isBlank() ? sec.label().trim() : sec.variable();
+                List<Long> ids = sec.findingIds() != null ? sec.findingIds().stream().distinct().toList() : List.of();
+                for (Finding f : findingRepo.findAllById(ids)) {
+                    if (f.getProjectId().equals(req.projectId()) && !f.isDraft()) {
+                        reportFindingRepo.save(new ReportFinding(report.getId(), f.getId(), sec.variable(), label));
+                        sectionFindingCount++;
+                    }
+                }
+            }
+        }
+
         Map<String, String> customFields = req.customFields() != null ? req.customFields() : Map.of();
         Map<String, Long> fieldTypeByName = fieldTypeRepo.findAllByOrderBySortOrderAscLabelAsc().stream()
             .collect(Collectors.toMap(ReportFieldType::getName, ReportFieldType::getId));
@@ -281,7 +302,7 @@ public class ReportGenerationService {
             reportFieldRepo.save(rf);
         });
 
-        return ReportDto.from(report, findings.size(), reportFieldRepo.findByReportId(report.getId()));
+        return ReportDto.from(report, findings.size() + sectionFindingCount, reportFieldRepo.findByReportId(report.getId()));
     }
 
     /** Generates a DOCX from the saved report data and uploads it to S3. */
@@ -291,9 +312,10 @@ public class ReportGenerationService {
         Project project = projectRepo.findById(report.getProjectId())
             .orElseThrow(() -> NotFoundException.of("project", report.getProjectId()));
 
-        List<Long> findingIds = reportFindingRepo.findByReportId(reportId).stream()
-            .map(ReportFinding::getFindingId).toList();
-        List<Finding> findings = inPublicationOrder(findingRepo.findAllById(findingIds));
+        List<ReportFinding> links = reportFindingRepo.findByReportId(reportId);
+        List<Finding> findings = inPublicationOrder(findingRepo.findAllById(links.stream()
+            .filter(ReportFinding::isDefaultSection).map(ReportFinding::getFindingId).distinct().toList()));
+        Map<String, ReportSection> sections = loadSections(links);
 
         List<ReportField> savedFields = reportFieldRepo.findByReportId(reportId);
         Map<String, String> customFields = savedFields.stream()
@@ -302,7 +324,7 @@ public class ReportGenerationService {
         ReportTemplate template = resolveTemplate(templateId, project);
         OffsetDateTime now = OffsetDateTime.now();
         try {
-            byte[] docx = generateDocx(template, report, project, findings, customFields);
+            byte[] docx = generateDocx(template, report, project, findings, sections, customFields);
             String objectKey = report.getOrganizationId() + "/reports/" + now.toEpochSecond() + "_" + reportId + ".docx";
             storage.put(exportsBucket, objectKey, CONTENT_TYPE_DOCX, docx);
             report.setTemplateId(template.getId());
@@ -327,7 +349,19 @@ public class ReportGenerationService {
             reportRepo.save(report);
             throw new ReportGenerationException(msg, ex);
         }
-        return ReportDto.from(report, findings.size(), savedFields);
+        return ReportDto.from(report, (int) links.stream().map(ReportFinding::getFindingId).distinct().count(), savedFields);
+    }
+
+    /** Groups the non-default links into their named sections, in first-saved order. */
+    private Map<String, ReportSection> loadSections(List<ReportFinding> links) {
+        Map<String, List<ReportFinding>> byVariable = new LinkedHashMap<>();
+        links.stream().filter(l -> !l.isDefaultSection())
+            .forEach(l -> byVariable.computeIfAbsent(l.getSectionVariable(), k -> new ArrayList<>()).add(l));
+        Map<String, ReportSection> sections = new LinkedHashMap<>();
+        byVariable.forEach((variable, rows) -> sections.put(variable, new ReportSection(variable,
+            rows.get(0).getSectionLabel(),
+            inPublicationOrder(findingRepo.findAllById(rows.stream().map(ReportFinding::getFindingId).toList())))));
+        return sections;
     }
 
     /** Builds a structured JSON export of all report data. */
@@ -337,7 +371,7 @@ public class ReportGenerationService {
             .orElseThrow(() -> NotFoundException.of("project", report.getProjectId()));
 
         List<Long> findingIds = reportFindingRepo.findByReportId(reportId).stream()
-            .map(ReportFinding::getFindingId).toList();
+            .map(ReportFinding::getFindingId).distinct().toList();
         List<Finding> findings = inPublicationOrder(findingRepo.findAllById(findingIds));
         List<ReportField> savedFields = reportFieldRepo.findByReportId(reportId);
 
@@ -781,8 +815,192 @@ public class ReportGenerationService {
 
     // ── Private helpers ────────────────────────────────────────────────────────
 
+    /** A named findings section of a report, resolved to entities. */
+    private record ReportSection(String variable, String label, List<Finding> findings) {}
+
+    /** Top-level template names a section variable must not shadow. */
+    private static final Set<String> RESERVED_SECTION_VARIABLES = Set.of(
+        "organization", "report", "project", "team", "fields", "projectScope", "chartPie", "chartBar",
+        "detections", "detectionsByIteration", "default", "scores", "references", "affections",
+        "affects", "detectedAt", "affectedAssets", "retestHistory");
+    private static final java.util.regex.Pattern SECTION_VARIABLE = java.util.regex.Pattern.compile("[a-z][A-Za-z0-9_]{0,40}");
+
+    /** Rejects variable names that would collide with the template model (or aren't valid tags). */
+    private static void validateSectionVariable(String variable) {
+        if (variable == null || !SECTION_VARIABLE.matcher(variable).matches()) {
+            throw new IllegalArgumentException("Invalid section variable '" + variable
+                + "': use letters, digits and underscores, starting with a lowercase letter");
+        }
+        if (RESERVED_SECTION_VARIABLES.contains(variable) || variable.startsWith("findings") || variable.startsWith("detections")
+                || variable.startsWith("project") || variable.startsWith("report")) {
+            throw new IllegalArgumentException("Section variable '" + variable + "' is reserved");
+        }
+    }
+
+    /** Puts {@code name} (the loop list) plus its Empty/NotEmpty/Count/Title/severity-count companions. */
+    private static void putSectionModel(Map<String, Object> model, String name, String label,
+                                        List<Finding> entities, List<Map<String, Object>> items) {
+        model.put(name, items);
+        model.put(name + "Empty", items.isEmpty());
+        model.put(name + "NotEmpty", !items.isEmpty());
+        model.put(name + "Title", label != null ? label : "");
+        model.put(name + "Count", String.valueOf(entities.size()));
+        Map<String, Long> bySev = entities.stream().collect(Collectors.groupingBy(
+            f -> f.getSeverity() != null ? f.getSeverity().toLowerCase() : "unknown", Collectors.counting()));
+        for (String sev : List.of("critical", "high", "medium", "low", "info")) {
+            model.put(name + "Count" + Character.toUpperCase(sev.charAt(0)) + sev.substring(1),
+                String.valueOf(bySev.getOrDefault(sev, 0L)));
+        }
+    }
+
+    /** One finding's template model (the item each {{?findings}}-style loop iterates). */
+    private Map<String, Object> buildFindingModel(Finding f, Project project,
+                                                  Map<Long, String> scoreTypeNames,
+                                                  Map<Long, ReferenceCatalog> catalogsById,
+                                                  Map<String, String> priorityLabels) {
+        Map<String, Object> fm = new LinkedHashMap<>();
+        fm.put("code", f.getCode() != null ? f.getCode() : "");
+        fm.put("title", f.getTitle() != null ? f.getTitle() : "");
+        String severityVal = f.getSeverity() != null
+            ? priorityLabels.getOrDefault(f.getSeverity().toLowerCase(), PriorityLabels.forSeverity(f.getSeverity()))
+            : "P?";
+        fm.put("severity", severityVal);
+        fm.put("status", f.getStatusId());
+
+        // fields (finding custom fields, already keyed by slug in the jsonb column)
+        Map<String, Object> fFields = new LinkedHashMap<>();
+        com.martecyber.ares.findings.FindingFields.read(f)
+            .forEach((slug, text) -> putField(fFields, slug, renderFieldHtml(text)));
+        fm.put("fields", fFields);
+
+        // defaultScore
+        List<FindingScore> scores = findingScoreRepo.findByFindingId(f.getId());
+        FindingScore defScore = scores.stream().filter(FindingScore::isDefault).findFirst().orElse(null);
+        Map<String, Object> dsMap = new LinkedHashMap<>();
+        if (defScore != null) {
+            dsMap.put("type", scoreTypeNames.getOrDefault(defScore.getTypeId(), ""));
+            dsMap.put("score", defScore.getScore());
+            dsMap.put("vector", defScore.getVector() != null ? defScore.getVector() : "");
+        }
+        fm.put("defaultScore", dsMap);
+
+        // scores
+        List<Map<String, Object>> scoresList = scores.stream().map(s -> {
+            Map<String, Object> sm = new LinkedHashMap<>();
+            sm.put("type", scoreTypeNames.getOrDefault(s.getTypeId(), ""));
+            sm.put("score", s.getScore());
+            sm.put("isDefault", s.isDefault());
+            sm.put("vector", s.getVector() != null ? s.getVector() : "");
+            return sm;
+        }).toList();
+        fm.put("scores", scoresList);
+        fm.put("scoresEmpty", scoresList.isEmpty());
+        fm.put("scoresNotEmpty", !scoresList.isEmpty());
+
+        // references
+        // references — full list + one pre-filtered list per catalog (referencesCwe, referencesCapec, …)
+        List<Map<String, Object>> refsList = refEntryRepo.findByFindingId(f.getId()).stream().map(r -> {
+            Map<String, Object> rm = new LinkedHashMap<>();
+            ReferenceCatalog cat = catalogsById.get(r.getCatalogId());
+            rm.put("catalog", cat != null ? cat.getCode() : "");
+            rm.put("title", r.getTitle() != null ? r.getTitle() : "");
+            rm.put("description", r.getDescription() != null ? r.getDescription() : "");
+            return rm;
+        }).toList();
+        fm.put("references", refsList);
+        fm.put("referencesEmpty", refsList.isEmpty());
+        fm.put("referencesNotEmpty", !refsList.isEmpty());
+        refsList.stream()
+            .collect(Collectors.groupingBy(r -> (String) r.get("catalog")))
+            .forEach((catalogCode, list) -> {
+                if (!catalogCode.isEmpty()) {
+                    String key = "references" + catalogCode.charAt(0) + catalogCode.substring(1).toLowerCase();
+                    fm.put(key, list);
+                    fm.put(key + "Empty", list.isEmpty());
+                    Numberings.NumberingBuilder b = Numberings.ofBullet();
+                    list.forEach(r -> b.addItem(r.get("title") + " — " + r.get("description")));
+                    fm.put(key + "_list", b.create());
+                }
+            });
+
+        // affections + affectedAssets (deduplicated) — sorted ASC by creation
+        List<Affection> affections = affectionRepo.findByFindingIdWithAssets(f.getId())
+            .stream()
+            .sorted(Comparator.comparing(Affection::getCreatedAt, Comparator.nullsLast(Comparator.naturalOrder())))
+            .toList();
+        Map<Long, Map<String, Object>> uniqueAffected = new LinkedHashMap<>();
+        List<Map<String, Object>> affectionsList = affections.stream().map(a -> {
+            Map<String, Object> am = new LinkedHashMap<>();
+            am.put("code", a.getCode() != null ? a.getCode() : "");
+            am.put("title", a.getTitle() != null ? a.getTitle() : "");
+            putField(am, "description", renderFieldHtml(a.getDescription()));
+            am.put("status", a.getStatus() != null ? a.getStatus() : "");
+
+            List<AffectionAsset> affectsLinks = a.getAssetLinks().stream()
+                .filter(al -> "affects".equals(al.getRole())).toList();
+            am.put("affectedCount", String.valueOf(affectsLinks.size()));
+            am.put("stillAffectedCount", String.valueOf(affectsLinks.stream()
+                .filter(al -> !"resolved".equals(al.getStatus())).count()));
+            am.put("affectsEmpty", affectsLinks.isEmpty());
+            am.put("affectsNotEmpty", !affectsLinks.isEmpty());
+
+            List<Map<String, Object>> affectsList = affectsLinks.stream().map(al -> {
+                Map<String, Object> m = buildAssetMap(al.getAsset(), al.getAssetId());
+                m.put("status", al.getStatus() != null ? al.getStatus() : "");
+                uniqueAffected.computeIfAbsent(al.getAssetId(),
+                    id -> buildAssetMap(al.getAsset(), id));
+                return m;
+            }).toList();
+            am.put("affects", affectsList);
+
+            // Pre-rendered bullet list for use as scalar inside table cells
+            Numberings.NumberingBuilder affectsBuilder = Numberings.ofBullet();
+            affectsList.forEach(asset -> affectsBuilder.addItem(
+                "[" + asset.get("type") + "] " + asset.get("identifier") +
+                " (" + asset.get("status") + ")"
+            ));
+            am.put("affects_list", affectsBuilder.create());
+
+            List<Map<String, Object>> detectedAtList = a.getAssetLinks().stream()
+                .filter(al -> "detected_at".equals(al.getRole())).map(al -> {
+                    Map<String, Object> m = buildAssetMap(al.getAsset(), al.getAssetId());
+                    m.put("observedAt", al.getObservedAt() != null ? al.getObservedAt().toString() : "");
+                    return m;
+                }).toList();
+            am.put("detectedAt", detectedAtList);
+            am.put("detectedAtEmpty", detectedAtList.isEmpty());
+            am.put("detectedAtNotEmpty", !detectedAtList.isEmpty());
+
+            Numberings.NumberingBuilder detectedAtBuilder = Numberings.ofBullet();
+            detectedAtList.forEach(asset -> detectedAtBuilder.addItem(
+                "[" + asset.get("type") + "] " + asset.get("identifier")
+            ));
+            am.put("detectedAt_list", detectedAtBuilder.create());
+            return am;
+        }).toList();
+        fm.put("affections", affectionsList);
+        fm.put("affectionsCount", String.valueOf(affectionsList.size()));
+        fm.put("affections.count", String.valueOf(affectionsList.size()));
+        fm.put("affectionsEmpty", affectionsList.isEmpty());
+        fm.put("affectionsNotEmpty", !affectionsList.isEmpty());
+        fm.put("affectedAssets", new ArrayList<>(uniqueAffected.values()));
+        fm.put("affectedAssetsCount", String.valueOf(uniqueAffected.size()));
+        fm.put("affectedAssetsEmpty", uniqueAffected.isEmpty());
+        fm.put("affectedAssetsNotEmpty", !uniqueAffected.isEmpty());
+
+        // retest history — status changes (with notes) recorded since this finding was
+        // linked into a RETEST project's scope; empty lists/strings for normal reports
+        List<Map<String, Object>> retestHistory = buildRetestHistory(f, project);
+        fm.put("retestHistory", retestHistory);
+        fm.put("retestHistoryEmpty", retestHistory.isEmpty());
+        fm.put("retestHistoryNotEmpty", !retestHistory.isEmpty());
+        putField(fm, "retestNote", renderFieldHtml(buildRetestNote(retestHistory)));
+        return fm;
+    }
+
     private byte[] generateDocx(ReportTemplate template, Report report, Project project,
-                                  List<Finding> findings, Map<String, String> customFields) throws Exception {
+                                  List<Finding> findings, Map<String, ReportSection> sections,
+                                  Map<String, String> customFields) throws Exception {
         byte[] templateBytes = storage.get(template.getBucket(), template.getObjectKey());
 
         // Batch-load lookup tables (same as exportJson)
@@ -885,7 +1103,9 @@ public class ReportGenerationService {
         // Detections available to this report — computed early since resolveFieldTemplate (used
         // by the "fields" block right below) needs them for {{?detections}} inside custom field
         // content, same as it already does for {{?findings}}.
-        TreeSet<String> iterationLabels = findingIterationLabels(findings);
+        List<Finding> allFindings = new ArrayList<>(findings);
+        sections.values().forEach(sec -> allFindings.addAll(sec.findings()));
+        TreeSet<String> iterationLabels = findingIterationLabels(allFindings);
         List<Detection> detections = resolveReportDetections(project.getId(), iterationLabels);
 
         // fields (report-level custom fields — resolve template vars before stripping HTML)
@@ -931,149 +1151,23 @@ public class ReportGenerationService {
         Map<String, String> priorityLabels = resolvePriorityLabels(template);
         List<Map<String, Object>> findingsList = new ArrayList<>();
         for (Finding f : findings) {
-            Map<String, Object> fm = new LinkedHashMap<>();
-            fm.put("code", f.getCode() != null ? f.getCode() : "");
-            fm.put("title", f.getTitle() != null ? f.getTitle() : "");
-            String severityVal = f.getSeverity() != null
-                ? priorityLabels.getOrDefault(f.getSeverity().toLowerCase(), PriorityLabels.forSeverity(f.getSeverity()))
-                : "P?";
-            fm.put("severity", severityVal);
-            fm.put("status", f.getStatusId());
-
-            // fields (finding custom fields, already keyed by slug in the jsonb column)
-            Map<String, Object> fFields = new LinkedHashMap<>();
-            com.martecyber.ares.findings.FindingFields.read(f)
-                .forEach((slug, text) -> putField(fFields, slug, renderFieldHtml(text)));
-            fm.put("fields", fFields);
-
-            // defaultScore
-            List<FindingScore> scores = findingScoreRepo.findByFindingId(f.getId());
-            FindingScore defScore = scores.stream().filter(FindingScore::isDefault).findFirst().orElse(null);
-            Map<String, Object> dsMap = new LinkedHashMap<>();
-            if (defScore != null) {
-                dsMap.put("type", scoreTypeNames.getOrDefault(defScore.getTypeId(), ""));
-                dsMap.put("score", defScore.getScore());
-                dsMap.put("vector", defScore.getVector() != null ? defScore.getVector() : "");
-            }
-            fm.put("defaultScore", dsMap);
-
-            // scores
-            List<Map<String, Object>> scoresList = scores.stream().map(s -> {
-                Map<String, Object> sm = new LinkedHashMap<>();
-                sm.put("type", scoreTypeNames.getOrDefault(s.getTypeId(), ""));
-                sm.put("score", s.getScore());
-                sm.put("isDefault", s.isDefault());
-                sm.put("vector", s.getVector() != null ? s.getVector() : "");
-                return sm;
-            }).toList();
-            fm.put("scores", scoresList);
-            fm.put("scoresEmpty", scoresList.isEmpty());
-            fm.put("scoresNotEmpty", !scoresList.isEmpty());
-
-            // references
-            // references — full list + one pre-filtered list per catalog (referencesCwe, referencesCapec, …)
-            List<Map<String, Object>> refsList = refEntryRepo.findByFindingId(f.getId()).stream().map(r -> {
-                Map<String, Object> rm = new LinkedHashMap<>();
-                ReferenceCatalog cat = catalogsById.get(r.getCatalogId());
-                rm.put("catalog", cat != null ? cat.getCode() : "");
-                rm.put("title", r.getTitle() != null ? r.getTitle() : "");
-                rm.put("description", r.getDescription() != null ? r.getDescription() : "");
-                return rm;
-            }).toList();
-            fm.put("references", refsList);
-            fm.put("referencesEmpty", refsList.isEmpty());
-            fm.put("referencesNotEmpty", !refsList.isEmpty());
-            refsList.stream()
-                .collect(Collectors.groupingBy(r -> (String) r.get("catalog")))
-                .forEach((catalogCode, list) -> {
-                    if (!catalogCode.isEmpty()) {
-                        String key = "references" + catalogCode.charAt(0) + catalogCode.substring(1).toLowerCase();
-                        fm.put(key, list);
-                        fm.put(key + "Empty", list.isEmpty());
-                        Numberings.NumberingBuilder b = Numberings.ofBullet();
-                        list.forEach(r -> b.addItem(r.get("title") + " — " + r.get("description")));
-                        fm.put(key + "_list", b.create());
-                    }
-                });
-
-            // affections + affectedAssets (deduplicated) — sorted ASC by creation
-            List<Affection> affections = affectionRepo.findByFindingIdWithAssets(f.getId())
-                .stream()
-                .sorted(Comparator.comparing(Affection::getCreatedAt, Comparator.nullsLast(Comparator.naturalOrder())))
-                .toList();
-            Map<Long, Map<String, Object>> uniqueAffected = new LinkedHashMap<>();
-            List<Map<String, Object>> affectionsList = affections.stream().map(a -> {
-                Map<String, Object> am = new LinkedHashMap<>();
-                am.put("code", a.getCode() != null ? a.getCode() : "");
-                am.put("title", a.getTitle() != null ? a.getTitle() : "");
-                putField(am, "description", renderFieldHtml(a.getDescription()));
-                am.put("status", a.getStatus() != null ? a.getStatus() : "");
-
-                List<AffectionAsset> affectsLinks = a.getAssetLinks().stream()
-                    .filter(al -> "affects".equals(al.getRole())).toList();
-                am.put("affectedCount", String.valueOf(affectsLinks.size()));
-                am.put("stillAffectedCount", String.valueOf(affectsLinks.stream()
-                    .filter(al -> !"resolved".equals(al.getStatus())).count()));
-                am.put("affectsEmpty", affectsLinks.isEmpty());
-                am.put("affectsNotEmpty", !affectsLinks.isEmpty());
-
-                List<Map<String, Object>> affectsList = affectsLinks.stream().map(al -> {
-                    Map<String, Object> m = buildAssetMap(al.getAsset(), al.getAssetId());
-                    m.put("status", al.getStatus() != null ? al.getStatus() : "");
-                    uniqueAffected.computeIfAbsent(al.getAssetId(),
-                        id -> buildAssetMap(al.getAsset(), id));
-                    return m;
-                }).toList();
-                am.put("affects", affectsList);
-
-                // Pre-rendered bullet list for use as scalar inside table cells
-                Numberings.NumberingBuilder affectsBuilder = Numberings.ofBullet();
-                affectsList.forEach(asset -> affectsBuilder.addItem(
-                    "[" + asset.get("type") + "] " + asset.get("identifier") +
-                    " (" + asset.get("status") + ")"
-                ));
-                am.put("affects_list", affectsBuilder.create());
-
-                List<Map<String, Object>> detectedAtList = a.getAssetLinks().stream()
-                    .filter(al -> "detected_at".equals(al.getRole())).map(al -> {
-                        Map<String, Object> m = buildAssetMap(al.getAsset(), al.getAssetId());
-                        m.put("observedAt", al.getObservedAt() != null ? al.getObservedAt().toString() : "");
-                        return m;
-                    }).toList();
-                am.put("detectedAt", detectedAtList);
-                am.put("detectedAtEmpty", detectedAtList.isEmpty());
-                am.put("detectedAtNotEmpty", !detectedAtList.isEmpty());
-
-                Numberings.NumberingBuilder detectedAtBuilder = Numberings.ofBullet();
-                detectedAtList.forEach(asset -> detectedAtBuilder.addItem(
-                    "[" + asset.get("type") + "] " + asset.get("identifier")
-                ));
-                am.put("detectedAt_list", detectedAtBuilder.create());
-                return am;
-            }).toList();
-            fm.put("affections", affectionsList);
-            fm.put("affectionsCount", String.valueOf(affectionsList.size()));
-            fm.put("affections.count", String.valueOf(affectionsList.size()));
-            fm.put("affectionsEmpty", affectionsList.isEmpty());
-            fm.put("affectionsNotEmpty", !affectionsList.isEmpty());
-            fm.put("affectedAssets", new ArrayList<>(uniqueAffected.values()));
-            fm.put("affectedAssetsCount", String.valueOf(uniqueAffected.size()));
-            fm.put("affectedAssetsEmpty", uniqueAffected.isEmpty());
-            fm.put("affectedAssetsNotEmpty", !uniqueAffected.isEmpty());
-
-            // retest history — status changes (with notes) recorded since this finding was
-            // linked into a RETEST project's scope; empty lists/strings for normal reports
-            List<Map<String, Object>> retestHistory = buildRetestHistory(f, project);
-            fm.put("retestHistory", retestHistory);
-            fm.put("retestHistoryEmpty", retestHistory.isEmpty());
-            fm.put("retestHistoryNotEmpty", !retestHistory.isEmpty());
-            putField(fm, "retestNote", renderFieldHtml(buildRetestNote(retestHistory)));
-
-            findingsList.add(fm);
+            findingsList.add(buildFindingModel(f, project, scoreTypeNames, catalogsById, priorityLabels));
         }
         model.put("findings", findingsList);
         model.put("findingsEmpty", findingsList.isEmpty());
         model.put("findingsNotEmpty", !findingsList.isEmpty());
+        // `findingsDefault` is an explicit name for the default section, i.e. the same list as `findings`.
+        putSectionModel(model, "findingsDefault", "Default", findings, findingsList);
+
+        // Named sections: each is its own top-level variable ({{?variable}}), rendered with the
+        // exact same per-finding model as the default list.
+        for (ReportSection sec : sections.values()) {
+            List<Map<String, Object>> secList = new ArrayList<>();
+            for (Finding f : sec.findings()) {
+                secList.add(buildFindingModel(f, project, scoreTypeNames, catalogsById, priorityLabels));
+            }
+            putSectionModel(model, sec.variable(), sec.label(), sec.findings(), secList);
+        }
 
         // detections (+ per-iteration breakdown, MONITOR projects) — scoped to the same
         // iteration labels as the findings above when present, else the whole project
@@ -1102,8 +1196,9 @@ public class ReportGenerationService {
         // LoopRowTableRenderPolicy: {{listName}} in a dedicated trigger row (removed after render),
         // the NEXT row is the template row duplicated per item using [[fieldName]] delimiters.
         LoopRowTableRenderPolicy loopRow = new LoopRowTableRenderPolicy("[", "]", true);
-        Configure configure = Configure.builder()
+        ConfigureBuilder configureBuilder = Configure.builder()
             .bind("findings",       loopRow)
+            .bind("findingsDefault", loopRow)
             .bind("team",           loopRow)
             .bind("projectScope",    loopRow)
             .bind("projectScopeIn",  loopRow)
@@ -1116,8 +1211,9 @@ public class ReportGenerationService {
             .bind("affectedAssets", loopRow)
             .bind("retestHistory", loopRow)
             .bind("detections",         loopRow)
-            .bind("detectionsByIteration", loopRow)
-            .build();
+            .bind("detectionsByIteration", loopRow);
+        sections.keySet().forEach(variable -> configureBuilder.bind(variable, loopRow));
+        Configure configure = configureBuilder.build();
 
         try (InputStream tplStream = new ByteArrayInputStream(templateBytes);
              ByteArrayOutputStream out = new ByteArrayOutputStream()) {
