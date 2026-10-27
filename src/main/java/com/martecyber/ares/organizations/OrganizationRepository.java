@@ -3,6 +3,7 @@ package com.martecyber.ares.organizations;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -40,4 +41,10 @@ public interface OrganizationRepository extends JpaRepository<Organization, Long
         """,
         nativeQuery = true)
     Page<Organization> findByOperatorUser(@Param("userId") Long userId, @Param("status") String status, Pageable pageable);
+
+    /** {@code user_role.organization_id} has no FK to organization, so a hard delete must clear
+     *  its operator/client-user assignments explicitly. */
+    @Modifying
+    @Query(value = "DELETE FROM ares.user_role WHERE organization_id = :orgId", nativeQuery = true)
+    void deleteUserRolesByOrganization(@Param("orgId") Long orgId);
 }

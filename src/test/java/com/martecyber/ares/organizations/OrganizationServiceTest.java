@@ -103,6 +103,25 @@ class OrganizationServiceTest {
     }
 
     @Test
+    void deletePermanentlyRemovesTheOrganizationAndItsUserRolesWhenTheNameMatches() {
+        Organization existing = org(1L, null);
+        when(repo.findById(1L)).thenReturn(Optional.of(existing));
+
+        service.deletePermanently(1L, " Acme ");
+
+        verify(repo).deleteUserRolesByOrganization(1L);
+        verify(repo).delete(existing);
+    }
+
+    @Test
+    void deletePermanentlyRefusesAMismatchedConfirmationName() {
+        when(repo.findById(1L)).thenReturn(Optional.of(org(1L, null)));
+
+        assertThrows(IllegalArgumentException.class, () -> service.deletePermanently(1L, "acme"));
+        verify(repo, never()).delete(any(Organization.class));
+    }
+
+    @Test
     void updateThrowsNotFoundForAnUnknownOrganization() {
         when(repo.findById(99L)).thenReturn(Optional.empty());
         assertThrows(NotFoundException.class,

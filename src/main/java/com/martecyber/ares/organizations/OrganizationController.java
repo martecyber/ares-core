@@ -168,6 +168,14 @@ public class OrganizationController {
         return ResponseEntity.noContent().build();
     }
 
+    /** Irreversible hard delete (unlike {@link #archive}); {@code confirmName} must equal the org's name. */
+    @DeleteMapping("/{id}/permanent")
+    @PreAuthorize("hasRole('MSSP_ADMIN')")
+    public ResponseEntity<Void> deletePermanently(@PathVariable Long id, @RequestParam String confirmName) {
+        service.deletePermanently(id, confirmName);
+        return ResponseEntity.noContent().build();
+    }
+
     @PostMapping(value = "/{id}/logo", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     @ResponseStatus(HttpStatus.NO_CONTENT)
     @PreAuthorize("hasAnyRole('MSSP_ADMIN','CLIENT_ADMIN')")

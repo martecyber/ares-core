@@ -152,6 +152,22 @@ public class OrganizationService {
         repo.save(o);
     }
 
+    /**
+     * Permanently deletes an organization and everything under it (projects, assets, findings,
+     * reports, integrations… via the schema's ON DELETE CASCADE chain). Irreversible, so the caller
+     * must echo the organization's exact name.
+     */
+    @Transactional
+    public void deletePermanently(Long id, String confirmName) {
+        Organization o = repo.findById(id).orElseThrow(() -> NotFoundException.of("organization", id));
+        if (confirmName == null || !confirmName.trim().equals(o.getName())) {
+            throw new IllegalArgumentException("Confirmation name does not match the organization's name");
+        }
+        repo.deleteUserRolesByOrganization(id);
+        repo.delete(o);
+        repo.flush();
+    }
+
     // ── Dashboard ─────────────────────────────────────────────────────────────
 
     public OrgDashboardDto getDashboard(Long orgId) {
