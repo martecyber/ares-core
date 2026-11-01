@@ -17,7 +17,10 @@ public class JobController {
 
     private final JobService svc;
 
-    public JobController(JobService svc) { this.svc = svc; }
+    private final com.martecyber.ares.users.OrgScopeService orgScope;
+
+    public JobController(JobService svc, com.martecyber.ares.users.OrgScopeService orgScope) {
+        this.orgScope = orgScope; this.svc = svc; }
 
     @GetMapping
     @PreAuthorize("hasAnyRole('MSSP_ADMIN','MSSP_OPERATOR')")
@@ -31,21 +34,32 @@ public class JobController {
         @RequestParam(defaultValue = "0") int page,
         @RequestParam(defaultValue = "50") int size
     ) {
-        return PagedResponse.of(svc.list(organizationId, projectId, type, status, sortBy, sortDir, page, size));
+        if (organizationId != null) orgScope.assertCurrentOrgAccess(organizationId);
+        if (projectId != null) orgScope.assertCurrentProjectAccess(projectId);
+        return PagedResponse.of(svc.list(organizationId, projectId, type, status, sortBy, sortDir, page, size,
+            orgScope.currentAccessibleOrgIds()));
     }
 
     @GetMapping("/{id}")
     @PreAuthorize("hasAnyRole('MSSP_ADMIN','MSSP_OPERATOR')")
-    public JobDto get(@PathVariable Long id) { return svc.get(id); }
+    public JobDto get(@PathVariable Long id) {
+        orgScope.assertCurrentCanSeeOrgOwned(svc.organizationIdOf(id));
+        return svc.get(id);
+    }
 
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
     @PreAuthorize("hasAnyRole('MSSP_ADMIN','MSSP_OPERATOR')")
-    public JobDto create(@Valid @RequestBody CreateJobRequest req) { return svc.create(req); }
+    public JobDto create(@Valid @RequestBody CreateJobRequest req) {
+        if (req.organizationId() != null) orgScope.assertCurrentOrgAccess(req.organizationId());
+        if (req.projectId() != null) orgScope.assertCurrentProjectAccess(req.projectId());
+        return svc.create(req);
+    }
 
     @PatchMapping("/{id}")
     @PreAuthorize("hasAnyRole('MSSP_ADMIN','MSSP_OPERATOR')")
     public JobDto update(@PathVariable Long id, @RequestBody UpdateJobRequest req) {
+        orgScope.assertCurrentCanSeeOrgOwned(svc.organizationIdOf(id));
         return svc.update(id, req);
     }
 
@@ -56,5 +70,8 @@ public class JobController {
     @PostMapping("/{id}/cancel")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     @PreAuthorize("hasAnyRole('MSSP_ADMIN','MSSP_OPERATOR')")
-    public void cancel(@PathVariable Long id) { svc.cancel(id); }
+    public void cancel(@PathVariable Long id) {
+        orgScope.assertCurrentCanSeeOrgOwned(svc.organizationIdOf(id));
+        svc.cancel(id);
+    }
 }

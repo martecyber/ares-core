@@ -90,6 +90,7 @@ public class OrganizationController {
     @GetMapping("/{id}/operators")
     @PreAuthorize("hasAnyRole('MSSP_ADMIN','MSSP_OPERATOR')")
     public java.util.List<java.util.Map<String, Object>> listOperators(@PathVariable Long id) {
+        orgScope.assertCurrentOrgAccess(id);
         return userRoleRepo.findByOrganizationId(id).stream()
             .map(ur -> {
                 var user = userRepo.findById(ur.getUserId()).orElse(null);

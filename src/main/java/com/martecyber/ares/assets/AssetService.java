@@ -1,9 +1,9 @@
 package com.martecyber.ares.assets;
 
+import com.martecyber.ares.common.ConflictException;
+
 import com.martecyber.ares.common.NotFoundException;
 import com.martecyber.ares.detections.DetectionRepository;
-import com.martecyber.ares.kb.thirdparty.KbThirdPartyEntry;
-import com.martecyber.ares.kb.thirdparty.KbThirdPartyEntryRepository;
 import com.martecyber.ares.projects.AssetScopeClassifier;
 import com.martecyber.ares.projects.ScopeClassifyScheduler;
 import com.martecyber.ares.organizations.OrganizationRepository;
@@ -57,7 +57,6 @@ public class AssetService {
     private final AssetScopeClassifier classifier;
     private final ScopeClassifyScheduler scheduler;
     private final DetectionRepository detectionRepo;
-    private final KbThirdPartyEntryRepository kbThirdPartyRepo;
     private final AssetTagRepository tagRepo;
     private final com.martecyber.ares.tags.TagRepository tagCatalogRepo;
     private final OrgScopeService orgScope;
@@ -70,7 +69,6 @@ public class AssetService {
                         OrganizationRepository orgRepo, @Lazy AssetScopeClassifier classifier,
                         @Lazy ScopeClassifyScheduler scheduler,
                         DetectionRepository detectionRepo,
-                        KbThirdPartyEntryRepository kbThirdPartyRepo,
                         AssetTagRepository tagRepo,
                         com.martecyber.ares.tags.TagRepository tagCatalogRepo,
                         OrgScopeService orgScope,
@@ -84,7 +82,6 @@ public class AssetService {
         this.classifier = classifier;
         this.scheduler = scheduler;
         this.detectionRepo = detectionRepo;
-        this.kbThirdPartyRepo = kbThirdPartyRepo;
         this.tagRepo = tagRepo;
         this.tagCatalogRepo = tagCatalogRepo;
         this.orgScope = orgScope;
@@ -114,8 +111,25 @@ public class AssetService {
 
     @Transactional
     public Asset unassignTag(Long assetId, Long tagId) {
+        get(assetId); // access check before touching anything
         tagRepo.unassign(assetId, tagId);
         return get(assetId);
+    }
+
+    /** Throws 404 / 403 unless the current user can access this asset's organization. */
+    public void assertAccess(Long assetId) {
+        Asset a = repo.findById(assetId).orElseThrow(() -> NotFoundException.of("asset", assetId));
+        orgScope.assertOrgAccess(currentAuth(), a.getOrganizationId());
+    }
+
+    /** Bulk variant for id-list endpoints: every known id must belong to an accessible org. */
+    public void assertAccess(java.util.Collection<Long> assetIds) {
+        if (assetIds == null || assetIds.isEmpty()) return;
+        Authentication auth = currentAuth();
+        if (orgScope.isPlatformAdmin(auth)) return;
+        for (Long orgId : repo.findDistinctOrganizationIdsByIdIn(assetIds)) {
+            orgScope.assertOrgAccess(auth, orgId);
+        }
     }
 
     /** Batch-populates Asset.tags for a page of results — one query regardless of page size. */
@@ -167,6 +181,27 @@ public class AssetService {
         return listByOrgIds(List.copyOf(accessible), type, q, protocol, types, hostSubtypes, visibility, sortBy, sortDir, p, s);
     }
 
+    /** Asset count per type for one project or one organization (exactly one must be given). */
+    @org.springframework.transaction.annotation.Transactional(readOnly = true)
+    public Map<String, Long> countByType(Long organizationId, Long projectId) {
+        if ((organizationId == null) == (projectId == null)) {
+            throw new org.springframework.web.server.ResponseStatusException(
+                org.springframework.http.HttpStatus.BAD_REQUEST, "Exactly one of organizationId or projectId is required");
+        }
+        var auth = currentAuth();
+        List<AssetRepository.TypeCountRow> rows;
+        if (projectId != null) {
+            orgScope.assertProjectAccess(auth, projectId);
+            rows = repo.countByTypeForProject(projectId);
+        } else {
+            orgScope.assertOrgAccess(auth, organizationId);
+            rows = repo.countByTypeForOrganization(organizationId);
+        }
+        Map<String, Long> counts = new java.util.TreeMap<>();
+        for (var r : rows) counts.put(r.getType(), r.getCount());
+        return counts;
+    }
+
     @SuppressWarnings("unchecked")
     private Page<Asset> listByProject(Long projectId, String type, String q,
                                       List<String> scopeStatus, String protocol,
@@ -184,7 +219,7 @@ public class AssetService {
             " JOIN ares.project_asset_access eaa ON eaa.asset_id = a.id" +
             " WHERE eaa.project_id = :projectId" +
             " AND (CAST(:type AS text) IS NULL OR a.type = :type)" +
-            " AND (CAST(:q AS text) IS NULL OR a.identifier ILIKE '%' || :q || '%' OR a.metadata::text ILIKE '%' || :q || '%')" +
+            " AND (CAST(:q AS text) IS NULL OR a.identifier ILIKE '%' || :q || '%' OR a.display_name ILIKE '%' || :q || '%' OR a.metadata::text ILIKE '%' || :q || '%')" +
             " AND (CAST(:scope AS text) IS NULL OR eaa.scope_status = ANY(string_to_array(:scope, ',')))" +
             " AND (CAST(:proto AS text) IS NULL OR LOWER(SPLIT_PART(a.identifier, '/', 2)) = ANY(string_to_array(:proto, ',')))" +
             " AND (CAST(:types AS text) IS NULL OR a.type = ANY(string_to_array(:types, ',')))" +
@@ -226,7 +261,7 @@ public class AssetService {
             " FROM ares.asset a" +
             " WHERE (CAST(:orgId AS bigint) IS NULL OR a.organization_id = :orgId)" +
             " AND (CAST(:type AS text) IS NULL OR a.type = :type)" +
-            " AND (CAST(:q AS text) IS NULL OR a.identifier ILIKE '%' || :q || '%' OR a.metadata::text ILIKE '%' || :q || '%')" +
+            " AND (CAST(:q AS text) IS NULL OR a.identifier ILIKE '%' || :q || '%' OR a.display_name ILIKE '%' || :q || '%' OR a.metadata::text ILIKE '%' || :q || '%')" +
             " AND (CAST(:proto AS text) IS NULL OR LOWER(SPLIT_PART(a.identifier, '/', 2)) = ANY(string_to_array(:proto, ',')))" +
             " AND (CAST(:types AS text) IS NULL OR a.type = ANY(string_to_array(:types, ',')))" +
             " AND (CAST(:subtypes AS text) IS NULL OR a.host_subtype = ANY(string_to_array(:subtypes, ',')))" +
@@ -249,12 +284,7 @@ public class AssetService {
         List<Asset> content = dataQ.getResultList();
         long total = ((Number) countQ.getSingleResult()).longValue();
 
-        if (!content.isEmpty()) {
-            List<KbThirdPartyEntry> kbEntries = kbThirdPartyRepo.findAllByEnabledTrue();
-            if (!kbEntries.isEmpty()) {
-                for (Asset a : content) a.setThirdParty(classifier.isThirdParty(a, kbEntries));
-            }
-        }
+        classifier.markThirdParty(content);
         populateTags(content);
 
         return new PageImpl<>(content, PageRequest.of(page, size), total);
@@ -275,7 +305,7 @@ public class AssetService {
             " FROM ares.asset a" +
             " WHERE a.organization_id IN (:orgIds)" +
             " AND (CAST(:type AS text) IS NULL OR a.type = :type)" +
-            " AND (CAST(:q AS text) IS NULL OR a.identifier ILIKE '%' || :q || '%' OR a.metadata::text ILIKE '%' || :q || '%')" +
+            " AND (CAST(:q AS text) IS NULL OR a.identifier ILIKE '%' || :q || '%' OR a.display_name ILIKE '%' || :q || '%' OR a.metadata::text ILIKE '%' || :q || '%')" +
             " AND (CAST(:proto AS text) IS NULL OR LOWER(SPLIT_PART(a.identifier, '/', 2)) = ANY(string_to_array(:proto, ',')))" +
             " AND (CAST(:types AS text) IS NULL OR a.type = ANY(string_to_array(:types, ',')))" +
             " AND (CAST(:subtypes AS text) IS NULL OR a.host_subtype = ANY(string_to_array(:subtypes, ',')))" +
@@ -298,12 +328,7 @@ public class AssetService {
         List<Asset> content = dataQ.getResultList();
         long total = ((Number) countQ.getSingleResult()).longValue();
 
-        if (!content.isEmpty()) {
-            List<KbThirdPartyEntry> kbEntries = kbThirdPartyRepo.findAllByEnabledTrue();
-            if (!kbEntries.isEmpty()) {
-                for (Asset a : content) a.setThirdParty(classifier.isThirdParty(a, kbEntries));
-            }
-        }
+        classifier.markThirdParty(content);
         populateTags(content);
 
         return new PageImpl<>(content, PageRequest.of(page, size), total);
@@ -351,12 +376,7 @@ public class AssetService {
         Page<Asset> result = AssetAqlProjectContext.runWithProject(projectId,
             () -> repo.findAll(spec, PageRequest.of(p, s, buildAssetSort(sortBy, sortDir))));
 
-        if (projectId == null && !result.getContent().isEmpty()) {
-            List<KbThirdPartyEntry> kbEntries = kbThirdPartyRepo.findAllByEnabledTrue();
-            if (!kbEntries.isEmpty()) {
-                for (Asset a : result.getContent()) a.setThirdParty(classifier.isThirdParty(a, kbEntries));
-            }
-        }
+        if (projectId == null) classifier.markThirdParty(result.getContent());
         populateTags(result.getContent());
         return result;
     }
@@ -496,14 +516,23 @@ public class AssetService {
     @Transactional
     public Asset create(Long organizationId, String code, String type, String identifier, String metadata,
                         String hostSubtype, List<String> hostnames) {
+        return create(organizationId, code, type, identifier, metadata, hostSubtype, hostnames, null);
+    }
+
+    @Transactional
+    public Asset create(Long organizationId, String code, String type, String identifier, String metadata,
+                        String hostSubtype, List<String> hostnames, String displayName) {
         orgScope.assertOrgAccess(currentAuth(), organizationId);
+        identifier = AssetIdentifierRules.normalize(type, identifier);
+        assertNoDuplicate(organizationId, type, identifier, null);
         if (code == null || code.isBlank()) code = generateCode(organizationId, type);
         Asset a = new Asset();
         a.setOrganizationId(organizationId);
         a.setCode(code);
         a.setType(type);
         a.setIdentifier(identifier);
-        a.setMetadata(metadata);
+        a.setMetadata(AssetIdentifierRules.normalizeMetadata(metadata));
+        a.setDisplayName(AssetIdentifierRules.normalizeDisplayName(displayName));
         if (AssetType.HOST.equals(type)) {
             a.setHostSubtype(hostSubtype != null && HostSubtype.ALL.contains(hostSubtype) ? hostSubtype : HostSubtype.UNKNOWN);
             // A manually-created host always has an explicit, required identifier — pin it,
@@ -530,6 +559,22 @@ public class AssetService {
         return saved;
     }
 
+    /**
+     * Manual entry must not create a second asset with the same (org, type, identifier) —
+     * imports dedupe on exactly that key, so a duplicate would split future scan data.
+     * HOST is exempt: its identifier is a user-owned display Name, not its identity
+     * (hosts are keyed by hostnames/interfaces, see AssetImportHelper.resolveOrCreateHost).
+     */
+    private void assertNoDuplicate(Long organizationId, String type, String identifier, Long selfId) {
+        if (AssetType.HOST.equals(type)) return;
+        repo.findByOrganizationIdAndTypeAndIdentifier(organizationId, type, identifier)
+            .filter(existing -> !existing.getId().equals(selfId))
+            .ifPresent(existing -> {
+                throw new ConflictException("An asset " + identifier + " of type " + type
+                    + " already exists (" + existing.getCode() + ")");
+            });
+    }
+
     @Transactional
     public Asset update(Long id, String type, String identifier, String metadata) {
         return update(id, type, identifier, metadata, null);
@@ -543,15 +588,33 @@ public class AssetService {
     @Transactional
     public Asset update(Long id, String type, String identifier, String metadata, String hostSubtype,
                         List<String> hostnames, Boolean nameOverride) {
+        return update(id, type, identifier, metadata, hostSubtype, hostnames, nameOverride, null);
+    }
+
+    /** {@code displayName}: null = don't touch, blank = clear. */
+    @Transactional
+    public Asset update(Long id, String type, String identifier, String metadata, String hostSubtype,
+                        List<String> hostnames, Boolean nameOverride, String displayName) {
         Asset a = get(id);
-        if (type != null) a.setType(type);
+        // Type is part of an asset's identity: its code prefix and every relationship were
+        // validated against it. Changing it in place would leave both inconsistent.
+        if (type != null && !type.equals(a.getType())) {
+            throw new IllegalArgumentException("An asset's type can't be changed — create a new asset instead");
+        }
         if (identifier != null) {
+            identifier = AssetIdentifierRules.normalize(a.getType(), identifier);
+            if (!identifier.equals(a.getIdentifier()) && !AssetIdentifierRules.identifierEditable(a.getType())) {
+                throw new IllegalArgumentException("This asset's identifier can't be changed: imports use it to recognize "
+                    + "the asset, so a new value would create a duplicate on the next scan. Use Display name instead.");
+            }
+            assertNoDuplicate(a.getOrganizationId(), a.getType(), identifier, a.getId());
             a.setIdentifier(identifier);
             // Editing the Name directly always pins it — auto-naming from hostnames stops
             // until the user explicitly resets it (nameOverride=false).
             if (AssetType.HOST.equals(a.getType())) a.setNameOverride(true);
         }
-        if (metadata != null) a.setMetadata(metadata);
+        if (metadata != null) a.setMetadata(AssetIdentifierRules.normalizeMetadata(metadata));
+        if (displayName != null) a.setDisplayName(AssetIdentifierRules.normalizeDisplayName(displayName));
         if (hostSubtype != null && HostSubtype.ALL.contains(hostSubtype)) a.setHostSubtype(hostSubtype);
         if (nameOverride != null) a.setNameOverride(nameOverride);
         if (hostnames != null) a.setHostnames(dedupeHostnames(hostnames));
@@ -805,16 +868,9 @@ public class AssetService {
 
     // ── CIDR utilities ────────────────────────────────────────────────────
 
-    /** Returns true if {@code ip} is within the CIDR block. Handles "ip" identifiers that may be just the IP string. */
+    /** Returns true if {@code ip} is within the CIDR block (IPv4 or IPv6; families never cross-match). */
     public static boolean isIpInCidr(String ip, String cidr) {
-        try {
-            String[] parts = cidr.split("/");
-            if (parts.length != 2) return false;
-            int prefix = Integer.parseInt(parts[1].trim());
-            if (prefix < 0 || prefix > 32) return false;
-            long mask = prefix == 0 ? 0L : (~0L << (32 - prefix)) & 0xFFFFFFFFL;
-            return (ipToLong(parts[0]) & mask) == (ipToLong(ip) & mask);
-        } catch (Exception e) { return false; }
+        return com.martecyber.ares.common.IpCidr.contains(cidr, ip);
     }
 
     /** Returns true if {@code subnet} is a subnet of {@code parent} (subnet has higher prefix, its base is within parent). */
@@ -827,22 +883,15 @@ public class AssetService {
     }
 
     public static int parsePrefixLen(String cidr) {
-        try { return Integer.parseInt(cidr.split("/")[1].trim()); }
-        catch (Exception e) { return -1; }
+        return com.martecyber.ares.common.IpCidr.prefixLength(cidr);
     }
 
-    private static long ipToLong(String ip) {
-        String[] o = ip.trim().split("\\.");
-        if (o.length != 4) throw new IllegalArgumentException("Not IPv4: " + ip);
-        long r = 0;
-        for (String oct : o) r = (r << 8) | (Long.parseLong(oct) & 0xFF);
-        return r;
-    }
-
-    /** Extract a bare IP from an identifier that might be "192.168.1.1" or "192.168.1.1:80/tcp". */
-    private static String extractIpStr(String identifier) {
+    /** Extract a bare IP from an identifier that might be an IPv4/IPv6 literal or a legacy "192.168.1.1:80/tcp". */
+    static String extractIpStr(String identifier) {
         if (identifier == null) return null;
-        String raw = identifier.contains(":") ? identifier.split(":")[0] : identifier;
+        String v = identifier.trim();
+        if (com.martecyber.ares.common.IpValidator.isValidLiteral(v)) return v;
+        String raw = v.contains(":") ? v.split(":")[0] : v;
         return raw.matches("\\d{1,3}(\\.\\d{1,3}){3}") ? raw : null;
     }
 

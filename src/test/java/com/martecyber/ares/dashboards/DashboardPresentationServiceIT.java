@@ -63,21 +63,31 @@ class DashboardPresentationServiceIT {
     private EntityManager em;
 
     private DashboardPresentationService service;
+    private com.martecyber.ares.users.OrgScopeService orgScope;
+    /** Organizations the simulated viewer can access; null = unrestricted (platform admin). */
+    private java.util.Set<Long> viewerOrgs;
+    private Long orgId;
     private Long platformDashboardId;
     private Long orgDashboardId;
     private Long projectDashboardId;
 
     @BeforeEach
     void seed() {
-        service = new DashboardPresentationService(presentationRepo, itemRepo, dashboardRepo, orgRepo, projectRepo);
+        viewerOrgs = null;
+        orgScope = org.mockito.Mockito.mock(com.martecyber.ares.users.OrgScopeService.class);
+        org.mockito.Mockito.when(orgScope.currentAccessibleOrgIds()).thenAnswer(inv -> viewerOrgs);
+        org.mockito.Mockito.when(orgScope.canSeeOrgOwned(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any()))
+            .thenCallRealMethod();
+        service = new DashboardPresentationService(presentationRepo, itemRepo, dashboardRepo, orgRepo, projectRepo, orgScope);
 
-        Number orgId = (Number) em.createNativeQuery(
+        Number orgIdNum = (Number) em.createNativeQuery(
                 "INSERT INTO ares.organization(name, slug) VALUES ('Presentation Test Org', 'presentation-test-org-' || floor(random()*1e9)::text) RETURNING id")
             .getSingleResult();
         Number projectId = (Number) em.createNativeQuery(
                 "INSERT INTO ares.project(organization_id, name) VALUES (:orgId, 'Presentation Test Project') RETURNING id")
-            .setParameter("orgId", orgId)
+            .setParameter("orgId", orgIdNum)
             .getSingleResult();
+        orgId = orgIdNum.longValue();
 
         // presentable=true on all three: this fixture exists to test presentation behavior, and
         // saveItems()/get() both now enforce the opt-in flag — see savingItemsRejectsANonPresentableDashboard
@@ -87,10 +97,33 @@ class DashboardPresentationServiceIT {
             .getSingleResult()).longValue();
         orgDashboardId = ((Number) em.createNativeQuery(
                 "INSERT INTO ares.dashboard(level, scope_id, name, is_default, presentable) VALUES ('ORGANIZATION', :scopeId, 'Org Dash', true, true) RETURNING id")
-            .setParameter("scopeId", orgId).getSingleResult()).longValue();
+            .setParameter("scopeId", orgIdNum).getSingleResult()).longValue();
         projectDashboardId = ((Number) em.createNativeQuery(
                 "INSERT INTO ares.dashboard(level, scope_id, name, is_default, presentable) VALUES ('PROJECT', :scopeId, 'Project Dash', true, true) RETURNING id")
             .setParameter("scopeId", projectId).getSingleResult()).longValue();
+    }
+
+    /** Presentations are shared by all staff, but a viewer only sees the dashboards of
+     *  organizations they can access — and editing must not silently drop the others. */
+    @Test
+    void viewerOnlySeesAccessibleDashboardsAndEditingKeepsTheRest() {
+        var created = service.create(new CreatePresentationRequest("Shared wall", 30));
+        service.saveItems(created.id(), new SavePresentationItemsRequest(
+            List.of(orgDashboardId, platformDashboardId, projectDashboardId)));
+
+        viewerOrgs = java.util.Set.of(); // an operator with no access to this org
+        assertEquals(List.of(platformDashboardId),
+            service.get(created.id()).items().stream().map(PresentationItemDto::dashboardId).toList());
+
+        // They can't add a dashboard of an org they can't access…
+        assertThrows(org.springframework.security.access.AccessDeniedException.class,
+            () -> service.saveItems(created.id(), new SavePresentationItemsRequest(List.of(orgDashboardId))));
+        // …and saving their (platform-only) view keeps the org's dashboards in the presentation.
+        service.saveItems(created.id(), new SavePresentationItemsRequest(List.of(platformDashboardId)));
+
+        viewerOrgs = java.util.Set.of(orgId);
+        assertEquals(List.of(platformDashboardId, orgDashboardId, projectDashboardId),
+            service.get(created.id()).items().stream().map(PresentationItemDto::dashboardId).toList());
     }
 
     @Test

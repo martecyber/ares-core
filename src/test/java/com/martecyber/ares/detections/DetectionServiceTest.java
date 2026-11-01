@@ -530,7 +530,8 @@ class DetectionServiceTest {
     @Test
     void createResolvesDefaultStatusAndAddsFirstAffectedAsset() {
         when(statusRepo.findByName("new")).thenReturn(Optional.of(status(1L, "new", true)));
-        var req = new CreateDetectionRequest(10L, 100L, "high", "new", "Title", "Desc", null);
+        when(repo.findByProjectIdAndDedupHash(eq(10L), anyString())).thenReturn(Optional.empty());
+        var req = new CreateDetectionRequest(10L, 100L, "high", "new", "Title", "Desc", null, null, null);
 
         DetectionDto dto = service.create(req);
 
@@ -544,7 +545,8 @@ class DetectionServiceTest {
     @Test
     void createWithoutAssetIdDoesNotCreateAffectedAssetRow() {
         when(statusRepo.findByName("new")).thenReturn(Optional.of(status(1L, "new", true)));
-        var req = new CreateDetectionRequest(10L, null, "high", "new", "Title", null, null);
+        when(repo.findByProjectIdAndDedupHash(eq(10L), anyString())).thenReturn(Optional.empty());
+        var req = new CreateDetectionRequest(10L, null, "high", "new", "Title", null, null, null, null);
 
         service.create(req);
 
@@ -554,9 +556,59 @@ class DetectionServiceTest {
     @Test
     void createWithUnknownStatusThrows() {
         when(statusRepo.findByName("bogus")).thenReturn(Optional.empty());
-        var req = new CreateDetectionRequest(10L, null, "high", "bogus", "Title", null, null);
+        var req = new CreateDetectionRequest(10L, null, "high", "bogus", "Title", null, null, null, null);
 
         assertThrows(IllegalArgumentException.class, () -> service.create(req));
+    }
+
+    @Test
+    void createDefaultsSourceTypeToAresWhenNotProvided() {
+        when(statusRepo.findByName("new")).thenReturn(Optional.of(status(1L, "new", true)));
+        when(repo.findByProjectIdAndDedupHash(eq(10L), anyString())).thenReturn(Optional.empty());
+        var req = new CreateDetectionRequest(10L, null, "high", "new", "Title", null, null, null, null);
+
+        service.create(req);
+
+        verify(repo).save(argThat(d -> "ares".equals(d.getSourceType())));
+    }
+
+    @Test
+    void createRespectsCustomSourceType() {
+        when(statusRepo.findByName("new")).thenReturn(Optional.of(status(1L, "new", true)));
+        when(repo.findByProjectIdAndDedupHash(eq(10L), anyString())).thenReturn(Optional.empty());
+        var req = new CreateDetectionRequest(10L, null, "medium", "new", "Title", null, null, "ai-auditor", "tmpl-42");
+
+        service.create(req);
+
+        verify(repo).save(argThat(d -> "ai-auditor".equals(d.getSourceType())
+                                    && "tmpl-42".equals(d.getSourceTemplateId())));
+    }
+
+    @Test
+    void createBumpsOccurrenceOnDuplicate() {
+        when(statusRepo.findByName("new")).thenReturn(Optional.of(status(1L, "new", true)));
+        Detection existing = detection(1L, 10L, "new");
+        existing.setSourceType("ares");
+        existing.setOccurrenceCount(2);
+        when(repo.findByProjectIdAndDedupHash(eq(10L), anyString())).thenReturn(Optional.of(existing));
+        var req = new CreateDetectionRequest(10L, null, "high", "new", "Title", null, null, null, null);
+
+        DetectionDto dto = service.create(req);
+
+        assertEquals(3, existing.getOccurrenceCount());
+        verify(historyRepo).save(argThat(h -> "reseen".equals(h.getEventType())));
+        verify(workflowEventDispatcher, never()).onDetectionCreated(any());
+    }
+
+    @Test
+    void createSetsDedupHash() {
+        when(statusRepo.findByName("new")).thenReturn(Optional.of(status(1L, "new", true)));
+        when(repo.findByProjectIdAndDedupHash(eq(10L), anyString())).thenReturn(Optional.empty());
+        var req = new CreateDetectionRequest(10L, null, "info", "new", "Test", null, null, null, null);
+
+        service.create(req);
+
+        verify(repo).save(argThat(d -> d.getDedupHash() != null && !d.getDedupHash().isBlank()));
     }
 
     // ── ingestExternal() ─────────────────────────────────────────────────────

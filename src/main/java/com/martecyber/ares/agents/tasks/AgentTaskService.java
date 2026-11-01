@@ -98,6 +98,13 @@ public class AgentTaskService {
      */
     public Page<GlobalTaskDto> listAll(List<String> statuses, List<String> tools, Long poolId,
                                        String sortBy, String sortDir, int page, int size) {
+        return listAll(statuses, tools, poolId, sortBy, sortDir, page, size, null);
+    }
+
+    /** @param visibleOrgIds only tasks of projects in these organizations; null = no restriction. */
+    public Page<GlobalTaskDto> listAll(List<String> statuses, List<String> tools, Long poolId,
+                                       String sortBy, String sortDir, int page, int size,
+                                       Set<Long> visibleOrgIds) {
         String col = AT_SORT_FIELDS.contains(sortBy) ? sortBy : "createdAt";
         Sort.Direction dir = "ASC".equalsIgnoreCase(sortDir) ? Sort.Direction.ASC : Sort.Direction.DESC;
         List<String> statusList = (statuses == null || statuses.isEmpty()) ? null : statuses;
@@ -108,6 +115,15 @@ public class AgentTaskService {
             toolList   == null ? null : (root, q, cb) -> root.get("tool").in(toolList)
         ).and(
             poolId     == null ? null : (root, q, cb) -> cb.equal(root.get("poolId"), poolId)
+        ).and(
+            visibleOrgIds == null ? null : (root, q, cb) -> {
+                var sub = q.subquery(Long.class);
+                var p = sub.from(Project.class);
+                sub.select(p.get("id")).where(visibleOrgIds.isEmpty()
+                    ? cb.disjunction()
+                    : p.get("organizationId").in(visibleOrgIds));
+                return root.get("projectId").in(sub);
+            }
         );
         Page<AgentTask> raw = taskRepo.findAll(spec,
             PageRequest.of(Math.max(page, 0), Math.min(Math.max(size, 1), 200), Sort.by(dir, col)));

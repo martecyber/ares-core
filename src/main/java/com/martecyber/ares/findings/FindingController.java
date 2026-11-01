@@ -175,6 +175,7 @@ public class FindingController {
     @PostMapping("/{id}/send-email")
     @PreAuthorize("hasAnyRole('MSSP_ADMIN','MSSP_OPERATOR')")
     public ResponseEntity<Void> sendEmail(@PathVariable Long id, @Valid @RequestBody SendEmailReportRequest req) {
+        service.get(id); // access check
         emailReportSvc.sendEmailForFinding(id, req.emailTemplateId(), req.integrationId(), req.to(), req.cc(), req.bcc());
         return ResponseEntity.noContent().build();
     }
@@ -184,6 +185,7 @@ public class FindingController {
     @GetMapping("/{id}/email-preview")
     @PreAuthorize("hasAnyRole('MSSP_ADMIN','MSSP_OPERATOR')")
     public EmailPreviewDto emailPreview(@PathVariable Long id, @RequestParam Long emailTemplateId) {
+        service.get(id); // access check
         return emailReportSvc.previewForFinding(id, emailTemplateId);
     }
 
@@ -193,6 +195,7 @@ public class FindingController {
     @GetMapping("/{id}/suggested-recipients")
     @PreAuthorize("hasAnyRole('MSSP_ADMIN','MSSP_OPERATOR')")
     public SuggestedRecipientsDto suggestedRecipients(@PathVariable Long id) {
+        service.get(id); // access check
         return SuggestedRecipientsDto.from(recipientRuleSvc.resolve(id));
     }
 

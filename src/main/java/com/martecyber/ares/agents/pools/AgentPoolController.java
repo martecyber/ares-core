@@ -15,7 +15,10 @@ public class AgentPoolController {
 
     private final AgentPoolService service;
 
-    public AgentPoolController(AgentPoolService service) {
+    private final com.martecyber.ares.users.OrgScopeService orgScope;
+
+    public AgentPoolController(AgentPoolService service, com.martecyber.ares.users.OrgScopeService orgScope) {
+        this.orgScope = orgScope;
         this.service = service;
     }
 
@@ -65,17 +68,26 @@ public class AgentPoolController {
 
     @GetMapping("/{id}/grants")
     @PreAuthorize("hasAnyRole('MSSP_ADMIN','MSSP_OPERATOR')")
-    public List<GrantDto> listGrants(@PathVariable Long id) { return service.listGrants(id); }
+    public List<GrantDto> listGrants(@PathVariable Long id) {
+        // Pools are shared infrastructure, but each grant targets one client — only show the caller's.
+        var visible = orgScope.currentAccessibleOrgIds();
+        return service.listGrants(id).stream()
+            .filter(g -> orgScope.canSeeOrgOwned(visible, g.organizationId()))
+            .toList();
+    }
 
     @PostMapping("/{id}/grants")
     @PreAuthorize("hasAnyRole('MSSP_ADMIN','MSSP_OPERATOR')")
     public ResponseEntity<GrantDto> createGrant(@PathVariable Long id, @RequestBody CreateGrant req) {
+        orgScope.assertCurrentOrgAccess(req.organizationId());
+        if (req.projectId() != null) orgScope.assertCurrentProjectAccess(req.projectId());
         return ResponseEntity.status(HttpStatus.CREATED).body(service.createGrant(id, req));
     }
 
     @DeleteMapping("/{id}/grants/{grantId}")
     @PreAuthorize("hasAnyRole('MSSP_ADMIN','MSSP_OPERATOR')")
     public ResponseEntity<Void> revokeGrant(@PathVariable Long id, @PathVariable Long grantId) {
+        orgScope.assertCurrentCanSeeOrgOwned(service.organizationIdOfGrant(grantId));
         service.revokeGrant(grantId);
         return ResponseEntity.noContent().build();
     }

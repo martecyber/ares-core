@@ -68,6 +68,35 @@ public class OrgScopeService {
         assertOrgAccess(auth, orgId);
     }
 
+    // ── Current-user shortcuts (for controllers/services without an Authentication param) ──
+
+    private static Authentication current() {
+        return org.springframework.security.core.context.SecurityContextHolder.getContext().getAuthentication();
+    }
+
+    public void assertCurrentOrgAccess(Long orgId) { assertOrgAccess(current(), orgId); }
+
+    public void assertCurrentProjectAccess(Long projectId) { assertProjectAccess(current(), projectId); }
+
+    /** Organizations the current user can see; null means unrestricted (platform admin). */
+    public Set<Long> currentAccessibleOrgIds() { return accessibleOrgIds(current()); }
+
+    /**
+     * For records that are either platform-wide (no organization) or owned by one organization
+     * (jobs, integrations, dashboards): platform-wide ones are visible to all staff, owned ones
+     * only to users with access to that organization.
+     */
+    public boolean canSeeOrgOwned(Set<Long> accessibleOrgIds, Long ownerOrgId) {
+        return ownerOrgId == null || accessibleOrgIds == null || accessibleOrgIds.contains(ownerOrgId);
+    }
+
+    /** Same as {@link #canSeeOrgOwned} for the current user, throwing 403 when not visible. */
+    public void assertCurrentCanSeeOrgOwned(Long ownerOrgId) {
+        if (!canSeeOrgOwned(currentAccessibleOrgIds(), ownerOrgId)) {
+            throw new AccessDeniedException("No access to organization " + ownerOrgId);
+        }
+    }
+
     public void assertFindingAccess(Authentication auth, Long findingId) {
         if (isPlatformAdmin(auth)) return;
         Finding f = findings.findById(findingId)

@@ -49,6 +49,7 @@ class ProjectServiceTest {
     private AssetScopeClassifier classifier;
     private ScopeClassifyScheduler scheduler;
     private OrgScopeService orgScope;
+    private ProjectIterationRepository iterationRepo;
     private WorkflowEventDispatcher workflowEventDispatcher;
     private ProjectService service;
 
@@ -64,9 +65,10 @@ class ProjectServiceTest {
         classifier = mock(AssetScopeClassifier.class);
         scheduler = mock(ScopeClassifyScheduler.class);
         orgScope = mock(OrgScopeService.class);
+        iterationRepo = mock(ProjectIterationRepository.class);
         workflowEventDispatcher = mock(WorkflowEventDispatcher.class);
         service = new ProjectService(repo, scopeRepo, memberRepo, typeRepo, orgRepo, userRepo,
-            deriver, classifier, scheduler, orgScope, workflowEventDispatcher);
+            deriver, classifier, scheduler, orgScope, iterationRepo, workflowEventDispatcher);
 
         when(repo.save(any())).thenAnswer(inv -> inv.getArgument(0));
         when(scopeRepo.save(any())).thenAnswer(inv -> inv.getArgument(0));

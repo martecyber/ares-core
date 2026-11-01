@@ -13,13 +13,13 @@ public interface AssetRepository extends JpaRepository<Asset, Long>, JpaSpecific
         "SELECT a.* FROM ares.asset a WHERE " +
         "(:organizationId IS NULL OR a.organization_id = :organizationId) AND " +
         "(:type IS NULL OR a.type = :type) AND " +
-        "(:q IS NULL OR a.identifier ILIKE '%' || :q || '%' OR a.metadata::text ILIKE '%' || :q || '%') " +
+        "(:q IS NULL OR a.identifier ILIKE '%' || :q || '%' OR a.display_name ILIKE '%' || :q || '%' OR a.metadata::text ILIKE '%' || :q || '%') " +
         "ORDER BY a.created_at DESC",
         countQuery =
         "SELECT COUNT(*) FROM ares.asset a WHERE " +
         "(:organizationId IS NULL OR a.organization_id = :organizationId) AND " +
         "(:type IS NULL OR a.type = :type) AND " +
-        "(:q IS NULL OR a.identifier ILIKE '%' || :q || '%' OR a.metadata::text ILIKE '%' || :q || '%')",
+        "(:q IS NULL OR a.identifier ILIKE '%' || :q || '%' OR a.display_name ILIKE '%' || :q || '%' OR a.metadata::text ILIKE '%' || :q || '%')",
         nativeQuery = true)
     Page<Asset> filter(@Param("organizationId") Long organizationId,
                        @Param("type") String type,
@@ -30,9 +30,44 @@ public interface AssetRepository extends JpaRepository<Asset, Long>, JpaSpecific
 
     java.util.Optional<Asset> findByOrganizationIdAndTypeAndIdentifier(Long organizationId, String type, String identifier);
 
+    /** Owning organizations of the given asset ids (unknown ids are simply absent) — for access checks. */
+    @org.springframework.data.jpa.repository.Query("SELECT DISTINCT a.organizationId FROM Asset a WHERE a.id IN :ids")
+    java.util.List<Long> findDistinctOrganizationIdsByIdIn(@org.springframework.data.repository.query.Param("ids") java.util.Collection<Long> ids);
+
+    /** The subset of {@code ids} owned by one of {@code orgIds} — for relationship visibility filtering. */
+    @org.springframework.data.jpa.repository.Query("SELECT a.id FROM Asset a WHERE a.id IN :ids AND a.organizationId IN :orgIds")
+    java.util.List<Long> findIdsInOrganizations(@org.springframework.data.repository.query.Param("ids") java.util.Collection<Long> ids,
+                                                @org.springframework.data.repository.query.Param("orgIds") java.util.Collection<Long> orgIds);
+
     java.util.List<Asset> findByOrganizationIdAndType(Long organizationId, String type);
 
+    /** A web application listing {@code url} among its Base URLs (metadata.baseUrls). */
+    @org.springframework.data.jpa.repository.Query(nativeQuery = true, value =
+        "SELECT * FROM asset a WHERE a.organization_id = :orgId AND a.type = 'web_application' " +
+        "AND jsonb_typeof(a.metadata -> 'baseUrls') = 'array' " +
+        "AND jsonb_exists(a.metadata -> 'baseUrls', :url) ORDER BY a.id LIMIT 1")
+    java.util.Optional<Asset> findWebApplicationByBaseUrl(@org.springframework.data.repository.query.Param("orgId") Long orgId,
+                                                          @org.springframework.data.repository.query.Param("url") String url);
+
     long countByOrganizationIdAndType(Long organizationId, String type);
+
+    interface TypeCountRow {
+        String getType();
+        long getCount();
+    }
+
+    @Query(value =
+        "SELECT a.type AS type, COUNT(*) AS count FROM ares.asset a " +
+        "WHERE a.organization_id = :orgId GROUP BY a.type",
+        nativeQuery = true)
+    java.util.List<TypeCountRow> countByTypeForOrganization(@Param("orgId") Long orgId);
+
+    @Query(value =
+        "SELECT a.type AS type, COUNT(*) AS count FROM ares.asset a " +
+        "JOIN ares.project_asset_access eaa ON eaa.asset_id = a.id " +
+        "WHERE eaa.project_id = :projectId GROUP BY a.type",
+        nativeQuery = true)
+    java.util.List<TypeCountRow> countByTypeForProject(@Param("projectId") Long projectId);
 
     /**
      * Returns the highest trailing sequence number already assigned to a code of
@@ -47,30 +82,9 @@ public interface AssetRepository extends JpaRepository<Asset, Long>, JpaSpecific
         nativeQuery = true)
     long maxCodeSequenceByOrgAndType(@Param("orgId") Long orgId, @Param("type") String type);
 
-    // Uses native SQL to avoid JPQL cross-package entity ambiguity
-    @org.springframework.data.jpa.repository.Query(value =
-        "SELECT a.* FROM ares.asset a " +
-        "JOIN ares.project_asset_access eaa ON eaa.asset_id = a.id " +
-        "WHERE eaa.project_id = :engId " +
-        "AND (:type IS NULL OR a.type = :type) " +
-        "AND (:q IS NULL OR a.identifier ILIKE '%' || :q || '%' OR a.metadata::text ILIKE '%' || :q || '%') " +
-        "ORDER BY a.created_at DESC",
-        countQuery =
-        "SELECT COUNT(*) FROM ares.asset a " +
-        "JOIN ares.project_asset_access eaa ON eaa.asset_id = a.id " +
-        "WHERE eaa.project_id = :engId " +
-        "AND (:type IS NULL OR a.type = :type) " +
-        "AND (:q IS NULL OR a.identifier ILIKE '%' || :q || '%' OR a.metadata::text ILIKE '%' || :q || '%')",
-        nativeQuery = true)
-    org.springframework.data.domain.Page<Asset> filterByProject(
-        @Param("engId") Long engId,
-        @Param("type")  String type,
-        @Param("q") String q,
-        org.springframework.data.domain.Pageable pageable);
-
     /**
-     * Same as {@link #filterByProject} but excludes assets the operator (or the
-     * scope classifier) has marked out-of-scope. Used by the agent-task target
+     * Assets of a project, excluding those the operator (or the scope classifier)
+     * has marked out-of-scope. Used by the agent-task target
      * resolver — operators must never accidentally scan assets they've flagged
      * as out-of-scope for the project.
      */

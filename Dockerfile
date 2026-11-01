@@ -51,7 +51,7 @@ FROM eclipse-temurin:21-jre-alpine
 #     CliPackageService / AgentPackageService return 501 NOT_IMPLEMENTED when
 #     makensis isn't on PATH, and the platform ships a pure-Java .zip fallback
 #     for Windows operators — so omitting it here degrades gracefully.
-RUN apk add --no-cache git su-exec ruby libffi tar binutils rpm && \
+RUN apk add --no-cache git su-exec ruby libffi tar binutils rpm fontconfig ttf-dejavu && \
     apk add --no-cache --virtual .build-deps ruby-dev build-base libffi-dev && \
     gem install --no-document fpm && \
     apk del .build-deps && \

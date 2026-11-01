@@ -35,12 +35,16 @@ public class AssetController {
     private final ServiceVisibilityRepository visibilityRepo;
     private final AssetToolSightingService sightingSvc;
     private final com.martecyber.ares.users.OrgScopeService orgScope;
+    private final com.martecyber.ares.projects.ScopeClassifyScheduler scopeScheduler;
 
     public AssetController(AssetService service, AssetRelationshipService relSvc,
                            WebEndpointHttpSampleService sampleSvc, AssetMergeService mergeSvc,
                            ServiceVisibilityRepository visibilityRepo,
                            AssetToolSightingService sightingSvc,
-                           com.martecyber.ares.users.OrgScopeService orgScope) {
+                           com.martecyber.ares.users.OrgScopeService orgScope,
+                           @org.springframework.context.annotation.Lazy
+                           com.martecyber.ares.projects.ScopeClassifyScheduler scopeScheduler) {
+        this.scopeScheduler = scopeScheduler;
         this.service        = service;
         this.relSvc         = relSvc;
         this.sampleSvc      = sampleSvc;
@@ -79,6 +83,15 @@ public class AssetController {
             a -> a);
     }
 
+    @GetMapping("/type-counts")
+    @PreAuthorize("hasAnyRole('MSSP_ADMIN','MSSP_OPERATOR','CLIENT_USER','CLIENT_ADMIN')")
+    public java.util.Map<String, Long> typeCounts(
+        @RequestParam(required = false) Long organizationId,
+        @RequestParam(required = false) Long projectId
+    ) {
+        return service.countByType(organizationId, projectId);
+    }
+
     @GetMapping("/{id}")
     @PreAuthorize("hasAnyRole('MSSP_ADMIN','MSSP_OPERATOR','CLIENT_USER','CLIENT_ADMIN')")
     public Asset get(@PathVariable Long id) {
@@ -89,7 +102,7 @@ public class AssetController {
     @PreAuthorize("hasAnyRole('MSSP_ADMIN','MSSP_OPERATOR')")
     public ResponseEntity<Asset> create(@Valid @RequestBody CreateAssetRequest req) {
         Asset created = service.create(req.organizationId(), req.code(), req.type(), req.identifier(),
-            req.metadata(), req.hostSubtype(), req.hostnames());
+            req.metadata(), req.hostSubtype(), req.hostnames(), req.displayName());
         return ResponseEntity.created(URI.create("/api/v1/assets/" + created.getId())).body(created);
     }
 
@@ -97,7 +110,7 @@ public class AssetController {
     @PreAuthorize("hasAnyRole('MSSP_ADMIN','MSSP_OPERATOR')")
     public Asset update(@PathVariable Long id, @RequestBody UpdateAssetRequest req) {
         return service.update(id, req.type(), req.identifier(), req.metadata(), req.hostSubtype(),
-            req.hostnames(), req.nameOverride());
+            req.hostnames(), req.nameOverride(), req.displayName());
     }
 
     @DeleteMapping("/{id}")
@@ -132,6 +145,7 @@ public class AssetController {
     @PostMapping("/{id}/merge")
     @PreAuthorize("hasAnyRole('MSSP_ADMIN','MSSP_OPERATOR')")
     public Asset merge(@PathVariable Long id, @RequestBody AssetMergeService.MergeRequest req) {
+        service.assertAccess(id); // the target must share the source's org (enforced in merge)
         return mergeSvc.merge(id, req);
     }
 
@@ -139,38 +153,59 @@ public class AssetController {
     @PreAuthorize("hasAnyRole('MSSP_ADMIN','MSSP_OPERATOR')")
     public List<Asset> findReachable(
         @RequestParam Long orgId,
-        @RequestParam List<Long> fromIds
+        @RequestParam List<Long> fromIds,
+        org.springframework.security.core.Authentication auth
     ) {
+        orgScope.assertOrgAccess(auth, orgId);
         return relSvc.findReachable(orgId, fromIds);
     }
 
     /** Assets + relationships within {@code maxHops} of a focus asset — for graph-view pickers. */
     @GetMapping("/neighborhood")
-    @PreAuthorize("hasAnyRole('MSSP_ADMIN','MSSP_OPERATOR')")
+    @PreAuthorize("hasAnyRole('MSSP_ADMIN','MSSP_OPERATOR','CLIENT_USER','CLIENT_ADMIN')")
     public AssetNeighborhoodDto neighborhood(
         @RequestParam Long orgId,
         @RequestParam Long assetId,
-        @RequestParam(defaultValue = "4") int maxHops
+        @RequestParam(defaultValue = "4") int maxHops,
+        org.springframework.security.core.Authentication auth
     ) {
+        orgScope.assertOrgAccess(auth, orgId);
         return relSvc.findNeighborhood(orgId, assetId, maxHops);
     }
 
     // ── Relationships ─────────────────────────────────────────────────────
+    // Reads are open to clients too: a caller sees a relationship only when it can see both
+    // assets it joins (both ends in an accessible organization).
 
     @GetMapping("/relationships")
-    @PreAuthorize("hasAnyRole('MSSP_ADMIN','MSSP_OPERATOR')")
+    @PreAuthorize("hasAnyRole('MSSP_ADMIN','MSSP_OPERATOR','CLIENT_USER','CLIENT_ADMIN')")
     public List<AssetRelationshipDto> listRelationships(
         @RequestParam(required = false) Long organizationId,
-        @RequestParam(required = false) Long projectId
+        @RequestParam(required = false) Long projectId,
+        org.springframework.security.core.Authentication auth
     ) {
-        if (projectId != null) return relSvc.listByProject(projectId);
-        return relSvc.listByOrganization(organizationId);
+        if (projectId != null) {
+            orgScope.assertProjectAccess(auth, projectId);
+            return relSvc.listByProject(projectId, orgScope.accessibleOrgIds(auth));
+        }
+        if (organizationId == null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "organizationId or projectId is required");
+        }
+        orgScope.assertOrgAccess(auth, organizationId);
+        return relSvc.listByOrganization(organizationId, orgScope.accessibleOrgIds(auth));
     }
 
     @GetMapping("/{id}/relationships")
-    @PreAuthorize("hasAnyRole('MSSP_ADMIN','MSSP_OPERATOR')")
+    @PreAuthorize("hasAnyRole('MSSP_ADMIN','MSSP_OPERATOR','CLIENT_USER','CLIENT_ADMIN')")
     public List<AssetRelationshipDetailDto> listRelationships(@PathVariable Long id) {
-        return relSvc.listAllForAsset(id);
+        service.assertAccess(id);
+        return relSvc.listAllForAsset(id, orgScope.currentAccessibleOrgIds());
+    }
+
+    @GetMapping("/link-types")
+    @PreAuthorize("hasAnyRole('MSSP_ADMIN','MSSP_OPERATOR')")
+    public List<com.martecyber.ares.assets.dto.AssetLinkTypeDto> linkTypes() {
+        return relSvc.linkTypes();
     }
 
     @PostMapping("/{id}/relationships")
@@ -180,7 +215,10 @@ public class AssetController {
         @PathVariable Long id,
         @Valid @RequestBody CreateAssetRelationshipRequest req
     ) {
-        return relSvc.create(id, req);
+        service.get(id); // org access check; the target must share the org (enforced in create)
+        AssetRelationshipDto dto = relSvc.create(id, req);
+        scopeScheduler.scheduleForAsset(id);
+        return dto;
     }
 
     @DeleteMapping("/{id}/relationships")
@@ -191,7 +229,9 @@ public class AssetController {
         @RequestParam Long toAssetId,
         @RequestParam String linkType
     ) {
+        service.get(id);
         relSvc.delete(id, toAssetId, linkType);
+        scopeScheduler.scheduleForAsset(id);
     }
 
     // ── Tags ────────────────────────────────────────────────────────────────
@@ -231,6 +271,7 @@ public class AssetController {
     @PreAuthorize("hasAnyRole('MSSP_ADMIN','MSSP_OPERATOR')")
     public Map<Long, String> visibilityAggregates(@RequestParam List<Long> ids) {
         if (ids == null || ids.isEmpty()) return Map.of();
+        service.assertAccess(ids);
         Map<Long, String> out = new HashMap<>();
         for (Object[] row : visibilityRepo.aggregateByAssetIds(ids)) {
             out.put(((Number) row[0]).longValue(), (String) row[1]);
@@ -247,6 +288,7 @@ public class AssetController {
     @PreAuthorize("hasAnyRole('MSSP_ADMIN','MSSP_OPERATOR')")
     public Map<Long, ServiceHostDto> serviceHosts(@RequestParam List<Long> ids) {
         if (ids == null || ids.isEmpty()) return Map.of();
+        service.assertAccess(ids);
         Map<Long, ServiceHostDto> out = new HashMap<>();
         for (Object[] row : service.findHostsForServices(ids)) {
             Long serviceId = ((Number) row[0]).longValue();
@@ -270,6 +312,15 @@ public class AssetController {
         return sightingSvc.listByAssetAndProject(id, projectId);
     }
 
+    /** The source tools' own ids for this asset (Tenable asset.id, CrowdStrike device_id, …) —
+     *  staff-only, like tool sightings, since it reveals which tools the MSSP runs. */
+    @GetMapping("/{id}/external-ids")
+    @PreAuthorize("hasAnyRole('MSSP_ADMIN','MSSP_OPERATOR')")
+    public List<AssetToolSightingService.ExternalIdDto> listExternalIds(@PathVariable Long id) {
+        service.assertAccess(id);
+        return sightingSvc.listExternalIds(id);
+    }
+
     /** Organization-context asset detail page — which PROJECTS have discovered this asset, never
      *  which tool each one used (see {@link AssetToolSightingService#listProjectsForAsset}). */
     @GetMapping("/{id}/tool-sighting-projects")
@@ -285,6 +336,7 @@ public class AssetController {
     @GetMapping("/{id}/http-samples")
     @PreAuthorize("hasAnyRole('MSSP_ADMIN','MSSP_OPERATOR')")
     public List<WebEndpointHttpSampleDto> listHttpSamples(@PathVariable Long id) {
+        service.assertAccess(id);
         return sampleSvc.listByEndpoint(id);
     }
 
@@ -295,6 +347,7 @@ public class AssetController {
         @PathVariable Long id,
         @RequestBody CreateWebEndpointHttpSampleRequest req
     ) {
+        service.assertAccess(id);
         return sampleSvc.create(id, req);
     }
 
@@ -305,6 +358,7 @@ public class AssetController {
         @PathVariable Long sampleId,
         @RequestBody CreateWebEndpointHttpSampleRequest req
     ) {
+        service.assertAccess(id); // the sample must belong to this asset (enforced in update)
         return sampleSvc.update(id, sampleId, req);
     }
 
@@ -312,6 +366,7 @@ public class AssetController {
     @ResponseStatus(HttpStatus.NO_CONTENT)
     @PreAuthorize("hasAnyRole('MSSP_ADMIN','MSSP_OPERATOR')")
     public void deleteHttpSample(@PathVariable Long id, @PathVariable Long sampleId) {
+        service.assertAccess(id);
         sampleSvc.delete(id, sampleId);
     }
 
@@ -324,13 +379,15 @@ public class AssetController {
         @NotBlank String identifier,
         String metadata,
         String hostSubtype,       // optional — only meaningful when type == "host"; defaults to "unknown"
-        List<String> hostnames    // optional — only meaningful when type == "host"
+        List<String> hostnames,   // optional — only meaningful when type == "host"
+        String displayName        // optional user label, any type
     ) {}
 
     record UpdateAssetRequest(
         String type, String identifier, String metadata, String hostSubtype,
         List<String> hostnames,  // optional — only meaningful when type == "host"; full-list replace
-        Boolean nameOverride     // optional — only meaningful when type == "host"; null = don't touch
+        Boolean nameOverride,    // optional — only meaningful when type == "host"; null = don't touch
+        String displayName       // optional user label, any type; null = don't touch, "" = clear
     ) {}
 
     record BulkIdsRequest(List<Long> ids) {}

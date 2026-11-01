@@ -85,8 +85,19 @@ public class IntegrationService {
      * TODO Default values should be added to the parameters.
      */
     public Page<IntegrationDto> list(Long organizationId, String type, String status, int page, int size) {
+        return list(organizationId, type, status, page, size, null);
+    }
+
+    /** @param visibleOrgIds platform-wide integrations plus those of these orgs; null = no restriction. */
+    public Page<IntegrationDto> list(Long organizationId, String type, String status, int page, int size,
+                                     java.util.Set<Long> visibleOrgIds) {
         var p = PageRequest.of(Math.max(page, 0), Math.min(Math.max(size, 1), 200));
-        return repo.filter(organizationId, blank(type), blank(status), p).map(IntegrationDto::from);
+        if (visibleOrgIds == null) {
+            return repo.filter(organizationId, blank(type), blank(status), p).map(IntegrationDto::from);
+        }
+        // An empty IN () is not portable JPQL — use an id no organization can have.
+        var orgIds = visibleOrgIds.isEmpty() ? java.util.Set.of(-1L) : visibleOrgIds;
+        return repo.filterVisible(organizationId, blank(type), blank(status), orgIds, p).map(IntegrationDto::from);
     }
 
     /**

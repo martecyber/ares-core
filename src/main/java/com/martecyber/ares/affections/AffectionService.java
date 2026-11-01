@@ -240,6 +240,7 @@ public class AffectionService {
 
     public com.martecyber.ares.common.PagedResponse<AffectStatusHistoryDto> getAffectHistory(
             Long affectionId, Long assetId, int page, int size) {
+        orgScope.assertAffectionAccess(SecurityContextHolder.getContext().getAuthentication(), affectionId);
         var pageable = org.springframework.data.domain.PageRequest.of(
             Math.max(page, 0), Math.min(Math.max(size, 1), 100));
         var result = historyRepo.findByAffectionIdAndAssetId(affectionId, assetId, pageable)

@@ -26,7 +26,7 @@ public class Asset {
     @Column(nullable = false, length = 50)
     private String type;
 
-    @Column(nullable = false, length = 255)
+    @Column(nullable = false, columnDefinition = "text")
     private String identifier;
 
     @Column(name = "created_at", nullable = false)
@@ -54,6 +54,11 @@ public class Asset {
      *  true, a user has explicitly pinned the Name and it is never recomputed. */
     @Column(name = "name_override", nullable = false)
     private boolean nameOverride;
+
+    /** Optional user-owned label for any asset type (V212). Shown instead of the identifier,
+     *  which stays the import dedup key; importers never write it. */
+    @Column(name = "display_name", columnDefinition = "text")
+    private String displayName;
 
     /** Populated at read-time by AssetService for org-level lists. Not persisted. */
     @jakarta.persistence.Transient
@@ -94,6 +99,9 @@ public class Asset {
 
     public boolean isNameOverride() { return nameOverride; }
     public void setNameOverride(boolean nameOverride) { this.nameOverride = nameOverride; }
+
+    public String getDisplayName() { return displayName; }
+    public void setDisplayName(String displayName) { this.displayName = displayName; }
 
     public boolean isThirdParty() { return thirdParty; }
     public void setThirdParty(boolean thirdParty) { this.thirdParty = thirdParty; }

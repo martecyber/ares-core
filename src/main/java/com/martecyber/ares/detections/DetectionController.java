@@ -124,7 +124,10 @@ public class DetectionController {
     @DeleteMapping("/{id}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     @PreAuthorize("hasAnyRole('MSSP_ADMIN','MSSP_OPERATOR')")
-    public void delete(@PathVariable Long id) { svc.delete(id); }
+    public void delete(@PathVariable Long id) {
+        svc.get(id); // access check
+        svc.delete(id);
+    }
 
     // ── Tags ────────────────────────────────────────────────────────────────
 
@@ -153,6 +156,7 @@ public class DetectionController {
     @PreAuthorize("hasAnyRole('MSSP_ADMIN','MSSP_OPERATOR')")
     public DetectionHttpSampleDto createHttpSample(@PathVariable Long id,
                                                    @RequestBody CreateDetectionHttpSampleRequest req) {
+        svc.get(id); // access check
         return httpSampleSvc.create(id, req);
     }
 
@@ -161,6 +165,7 @@ public class DetectionController {
     public DetectionHttpSampleDto updateHttpSample(@PathVariable Long id,
                                                    @PathVariable Long sampleId,
                                                    @RequestBody CreateDetectionHttpSampleRequest req) {
+        svc.get(id); // access check; the sample must belong to this detection (enforced in update)
         return httpSampleSvc.update(id, sampleId, req);
     }
 
@@ -168,6 +173,7 @@ public class DetectionController {
     @ResponseStatus(HttpStatus.NO_CONTENT)
     @PreAuthorize("hasAnyRole('MSSP_ADMIN','MSSP_OPERATOR')")
     public void deleteHttpSample(@PathVariable Long id, @PathVariable Long sampleId) {
+        svc.get(id); // access check
         httpSampleSvc.delete(id, sampleId);
     }
 }

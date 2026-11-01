@@ -27,6 +27,12 @@ public class JobService {
 
     public Page<JobDto> list(Long organizationId, Long projectId, List<String> types, List<String> statuses,
                              String sortBy, String sortDir, int page, int size) {
+        return list(organizationId, projectId, types, statuses, sortBy, sortDir, page, size, null);
+    }
+
+    /** @param visibleOrgIds platform jobs (no org) plus jobs of these orgs; null = no restriction. */
+    public Page<JobDto> list(Long organizationId, Long projectId, List<String> types, List<String> statuses,
+                             String sortBy, String sortDir, int page, int size, Set<Long> visibleOrgIds) {
         String col = SORT_FIELDS.contains(sortBy) ? sortBy : "createdAt";
         Sort.Direction dir = "ASC".equalsIgnoreCase(sortDir) ? Sort.Direction.ASC : Sort.Direction.DESC;
         var pageable = PageRequest.of(Math.max(page, 0), Math.min(Math.max(size, 1), 200), Sort.by(dir, col));
@@ -36,8 +42,16 @@ public class JobService {
             .where(organizationId == null ? null : (Specification<Job>) (root, q, cb) -> cb.equal(root.get("organizationId"), organizationId))
             .and(projectId == null ? null : (Specification<Job>) (root, q, cb) -> cb.equal(root.get("projectId"), projectId))
             .and(typeList   == null ? null : (root, q, cb) -> root.get("type").in(typeList))
-            .and(statusList == null ? null : (root, q, cb) -> root.get("status").in(statusList));
+            .and(statusList == null ? null : (root, q, cb) -> root.get("status").in(statusList))
+            .and(visibleOrgIds == null ? null : (root, q, cb) -> visibleOrgIds.isEmpty()
+                ? cb.isNull(root.get("organizationId"))
+                : cb.or(cb.isNull(root.get("organizationId")), root.get("organizationId").in(visibleOrgIds)));
         return repo.findAll(spec, pageable).map(JobDto::from);
+    }
+
+    /** Owning organization of a job (null for platform-wide jobs) — for access checks. */
+    public Long organizationIdOf(Long id) {
+        return repo.findById(id).map(Job::getOrganizationId).orElseThrow(() -> NotFoundException.of("job", id));
     }
 
     public JobDto get(Long id) {

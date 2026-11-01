@@ -21,6 +21,81 @@ public final class MonitorIterationHelper {
 
     private MonitorIterationHelper() {}
 
+    /**
+     * Ensures a {@link ProjectIteration} row exists for the given label, creating it lazily
+     * from the cadence-computed bounds if absent. Returns the (possibly just-created) row.
+     */
+    public static ProjectIteration ensureIterationRow(Project project, String label,
+                                                       ProjectIterationRepository iterRepo) {
+        if (label == null) return null;
+        return iterRepo.findByProjectIdAndLabel(project.getId(), label).orElseGet(() -> {
+            LocalDate[] bounds = iterationBounds(project.getIterationCadence(), labelReferenceDate(project.getIterationCadence(), label));
+            if (bounds == null) return null;
+            var row = new ProjectIteration(project.getId(), label, bounds[0], bounds[1], bounds[0]);
+            return iterRepo.save(row);
+        });
+    }
+
+    /**
+     * Resolves the iteration label for a date using persisted actual dates (with sliding)
+     * instead of pure calendar computation. Falls back to {@link #computeLabel} when no
+     * matching persisted row exists.
+     */
+    public static String resolveIterationLabel(Project project, LocalDate date,
+                                                ProjectIterationRepository iterRepo) {
+        if (project.getIterationCadence() == null || date == null) return null;
+        var rows = iterRepo.findByProjectIdOrderByPlannedStartAsc(project.getId());
+        for (ProjectIteration row : rows) {
+            LocalDate start = row.getActualStart() != null ? row.getActualStart() : row.getPlannedStart();
+            LocalDate end = row.effectiveEnd();
+            if (!date.isBefore(start) && date.isBefore(end)) return row.getLabel();
+        }
+        return computeLabel(project.getIterationCadence(), date);
+    }
+
+    /**
+     * Derives a reference date that falls inside the period described by a label, for use
+     * with {@link #iterationBounds}. This is the inverse of {@link #computeLabel}.
+     */
+    static LocalDate labelReferenceDate(String cadence, String label) {
+        if (cadence == null || label == null) return null;
+        try {
+            int yy = Integer.parseInt(label.substring(0, 2));
+            int year = 2000 + yy;
+            return switch (cadence) {
+                case "weekly" -> {
+                    int week = Integer.parseInt(label.substring(4));
+                    yield LocalDate.of(year, 1, 4)
+                        .with(IsoFields.WEEK_OF_WEEK_BASED_YEAR, week)
+                        .with(DayOfWeek.MONDAY);
+                }
+                case "biweekly" -> {
+                    int fortnight = Integer.parseInt(label.substring(5));
+                    int week = (fortnight - 1) * 2 + 1;
+                    yield LocalDate.of(year, 1, 4)
+                        .with(IsoFields.WEEK_OF_WEEK_BASED_YEAR, week)
+                        .with(DayOfWeek.MONDAY);
+                }
+                case "monthly" -> {
+                    int month = Integer.parseInt(label.substring(3));
+                    yield LocalDate.of(year, month, 1);
+                }
+                case "quarterly" -> {
+                    int q = Integer.parseInt(label.substring(4));
+                    yield LocalDate.of(year, (q - 1) * 3 + 1, 1);
+                }
+                case "semiannual" -> {
+                    int s = Integer.parseInt(label.substring(4));
+                    yield LocalDate.of(year, s == 1 ? 1 : 7, 1);
+                }
+                case "annual" -> LocalDate.of(year, 1, 1);
+                default -> null;
+            };
+        } catch (NumberFormatException | StringIndexOutOfBoundsException e) {
+            return null;
+        }
+    }
+
     public static String computeLabel(String cadence, LocalDate date) {
         if (cadence == null || date == null) return null;
         int yy = date.getYear() % 100;
@@ -63,6 +138,11 @@ public final class MonitorIterationHelper {
      * their persisted active label until {@code approveIteration} is called explicitly.
      */
     public static String resolveActiveLabel(Project project, ProjectRepository projectRepo) {
+        return resolveActiveLabel(project, projectRepo, null);
+    }
+
+    public static String resolveActiveLabel(Project project, ProjectRepository projectRepo,
+                                             ProjectIterationRepository iterRepo) {
         String cadence = project.getIterationCadence();
         if (cadence == null) return null;
         String pending = computeLabel(cadence, LocalDate.now());
@@ -70,8 +150,10 @@ public final class MonitorIterationHelper {
         if (active == null || (project.isAutoAdvanceIterations() && !pending.equals(active))) {
             project.setActiveIterationLabel(pending);
             projectRepo.save(project);
+            if (iterRepo != null) ensureIterationRow(project, pending, iterRepo);
             return pending;
         }
+        if (iterRepo != null) ensureIterationRow(project, active, iterRepo);
         return active;
     }
 

@@ -8,6 +8,7 @@ public record AssetRelationshipDetailDto(
     Long   relatedAssetId,
     String relatedCode,
     String relatedIdentifier,
+    String relatedDisplayName,
     String relatedType,
     String linkType,
     String direction   // "outgoing" (this → other) | "incoming" (other → this)

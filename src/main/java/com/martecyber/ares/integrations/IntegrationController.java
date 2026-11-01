@@ -22,7 +22,10 @@ public class IntegrationController {
     private final IntegrationActionRegistry actionRegistry;
     private final PluginRepository pluginRepo;
 
-    public IntegrationController(IntegrationService svc, IntegrationActionRegistry actionRegistry, PluginRepository pluginRepo) {
+    private final com.martecyber.ares.users.OrgScopeService orgScope;
+
+    public IntegrationController(IntegrationService svc, IntegrationActionRegistry actionRegistry, PluginRepository pluginRepo, com.martecyber.ares.users.OrgScopeService orgScope) {
+        this.orgScope = orgScope;
         this.svc = svc;
         this.actionRegistry = actionRegistry;
         this.pluginRepo = pluginRepo;
@@ -62,12 +65,17 @@ public class IntegrationController {
         @RequestParam(defaultValue = "0") int page,
         @RequestParam(defaultValue = "50") int size
     ) {
-        return PagedResponse.of(svc.list(organizationId, type, status, page, size));
+        if (organizationId != null) orgScope.assertCurrentOrgAccess(organizationId);
+        return PagedResponse.of(svc.list(organizationId, type, status, page, size, orgScope.currentAccessibleOrgIds()));
     }
 
     @GetMapping("/{id}")
     @PreAuthorize("hasAnyRole('MSSP_ADMIN','MSSP_OPERATOR')")
-    public IntegrationDto get(@PathVariable Long id) { return svc.get(id); }
+    public IntegrationDto get(@PathVariable Long id) {
+        IntegrationDto dto = svc.get(id);
+        orgScope.assertCurrentCanSeeOrgOwned(dto.organizationId());
+        return dto;
+    }
 
     @PostMapping
     @PreAuthorize("hasRole('MSSP_ADMIN')")
@@ -114,7 +122,12 @@ public class IntegrationController {
     @GetMapping("/{id}/grants")
     @PreAuthorize("hasAnyRole('MSSP_ADMIN','MSSP_OPERATOR')")
     public List<IntegrationGrantDto> listGrants(@PathVariable Long id) {
-        return svc.listGrants(id);
+        orgScope.assertCurrentCanSeeOrgOwned(svc.get(id).organizationId());
+        // A platform integration is granted to many orgs — only show the caller's own grants.
+        var visible = orgScope.currentAccessibleOrgIds();
+        return svc.listGrants(id).stream()
+            .filter(g -> orgScope.canSeeOrgOwned(visible, g.organizationId()))
+            .toList();
     }
 
     @PostMapping("/{id}/grants")

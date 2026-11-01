@@ -122,6 +122,12 @@ public class AgentPoolService {
     }
 
     @Transactional
+    /** Organization a grant targets — for the caller's access check before revoking it. */
+    public Long organizationIdOfGrant(Long grantId) {
+        return grantRepo.findById(grantId).map(AgentPoolGrant::getOrganizationId)
+            .orElseThrow(() -> NotFoundException.of("agent pool grant", grantId));
+    }
+
     public void revokeGrant(Long grantId) {
         if (!grantRepo.existsById(grantId)) throw NotFoundException.of("agent pool grant", grantId);
         grantRepo.deleteById(grantId);

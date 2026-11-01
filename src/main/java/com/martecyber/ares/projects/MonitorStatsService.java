@@ -19,18 +19,23 @@ import java.util.*;
 public class MonitorStatsService {
 
     private final ProjectRepository projectRepo;
+    private final ProjectIterationRepository iterationRepo;
     private final FindingRepository findingRepo;
     private final DetectionIterationStatRepository detectionStatRepo;
 
-    public MonitorStatsService(ProjectRepository projectRepo, FindingRepository findingRepo,
+    public MonitorStatsService(ProjectRepository projectRepo, ProjectIterationRepository iterationRepo,
+                               FindingRepository findingRepo,
                                DetectionIterationStatRepository detectionStatRepo) {
         this.projectRepo = projectRepo;
+        this.iterationRepo = iterationRepo;
         this.findingRepo = findingRepo;
         this.detectionStatRepo = detectionStatRepo;
     }
 
     public record IterationRow(
         String label,
+        String startDate,
+        String endDate,
         long reported,
         long resolved,
         long openAtEnd
@@ -41,6 +46,8 @@ public class MonitorStatsService {
      *  (e.g. opened then closed), see DetectionIterationStat's migration comment. */
     public record DetectionIterationRow(
         String label,
+        String startDate,
+        String endDate,
         long opened,
         long escalated,
         long closed
@@ -72,9 +79,15 @@ public class MonitorStatsService {
         // 3. Current (active/authoritative) iteration label, plus what the calendar
         // currently says — they differ only when a manual-approval project's iteration
         // has run long and nobody has approved the jump to the next one yet.
-        String currentLabel = MonitorIterationHelper.resolveActiveLabel(project, projectRepo);
+        String currentLabel = MonitorIterationHelper.resolveActiveLabel(project, projectRepo, iterationRepo);
         String pendingLabel = MonitorIterationHelper.computeLabel(
             project.getIterationCadence(), LocalDate.now());
+
+        // Pre-load all persisted iterations for date resolution below
+        Map<String, ProjectIteration> iterByLabel = new LinkedHashMap<>();
+        for (ProjectIteration pi : iterationRepo.findByProjectIdOrderByPlannedStartAsc(projectId)) {
+            iterByLabel.put(pi.getLabel(), pi);
+        }
         boolean awaitingApproval = !project.isAutoAdvanceIterations()
             && pendingLabel != null && !pendingLabel.equals(currentLabel);
 
@@ -93,7 +106,10 @@ public class MonitorStatsService {
             long open = statusMap.getOrDefault("open", 0L)
                 + statusMap.getOrDefault("in_review", 0L)
                 + statusMap.getOrDefault("pending_review", 0L);
-            rows.add(new IterationRow(label, reported, resolved, open));
+            ProjectIteration pi = iterByLabel.get(label);
+            String startDate = pi != null && pi.getActualStart() != null ? pi.getActualStart().toString() : null;
+            String endDate = pi != null ? pi.effectiveEnd().toString() : null;
+            rows.add(new IterationRow(label, startDate, endDate, reported, resolved, open));
         }
 
         // 5. Per-iteration detection breakdown (opened / escalated / closed)
@@ -104,8 +120,11 @@ public class MonitorStatsService {
             for (Object[] row : detectionStatRepo.countByProjectAndLabelGroupByArea(projectId, label)) {
                 areaMap.put((String) row[0], ((Number) row[1]).longValue());
             }
+            ProjectIteration dpi = iterByLabel.get(label);
+            String dStartDate = dpi != null && dpi.getActualStart() != null ? dpi.getActualStart().toString() : null;
+            String dEndDate = dpi != null ? dpi.effectiveEnd().toString() : null;
             detectionRows.add(new DetectionIterationRow(
-                label,
+                label, dStartDate, dEndDate,
                 areaMap.getOrDefault(DetectionIterationStat.AREA_OPEN, 0L),
                 areaMap.getOrDefault(DetectionIterationStat.AREA_ESCALATED, 0L),
                 areaMap.getOrDefault(DetectionIterationStat.AREA_CLOSED, 0L)));

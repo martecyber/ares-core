@@ -34,9 +34,13 @@ public class DashboardPresentationService {
     private final OrganizationRepository orgRepo;
     private final ProjectRepository projectRepo;
 
+    private final com.martecyber.ares.users.OrgScopeService orgScope;
+
     public DashboardPresentationService(DashboardPresentationRepository repo, DashboardPresentationItemRepository itemRepo,
                                          DashboardRepository dashboardRepo, OrganizationRepository orgRepo,
-                                         ProjectRepository projectRepo) {
+                                         ProjectRepository projectRepo,
+                                         com.martecyber.ares.users.OrgScopeService orgScope) {
+        this.orgScope = orgScope;
         this.repo = repo;
         this.itemRepo = itemRepo;
         this.dashboardRepo = dashboardRepo;
@@ -59,6 +63,9 @@ public class DashboardPresentationService {
         Map<Long, Dashboard> dashboardsById = dashboards.stream()
             .collect(java.util.stream.Collectors.toMap(Dashboard::getId, d -> d));
         Map<Long, DashboardScopeLabels.ScopeInfo> scopeInfo = DashboardScopeLabels.resolve(dashboards, orgRepo, projectRepo);
+        // Presentations are shared by all staff, but each viewer only sees the dashboards of
+        // organizations they can access (the widgets' data would be denied anyway).
+        java.util.Set<Long> visibleOrgs = orgScope.currentAccessibleOrgIds();
 
         // A dashboard referenced by an item may have been deleted out from under it — ON DELETE
         // CASCADE means the item itself would already be gone in that case, but a race between
@@ -70,6 +77,7 @@ public class DashboardPresentationService {
             .map(i -> dashboardsById.get(i.getDashboardId()))
             .filter(java.util.Objects::nonNull)
             .filter(d -> d.isPresentable() && !d.isTemplate())
+            .filter(d -> orgScope.canSeeOrgOwned(visibleOrgs, scopeInfo.get(d.getId()).organizationId()))
             .map(d -> {
                 var info = scopeInfo.get(d.getId());
                 return new PresentationItemDto(d.getId(), d.getName(), d.getLevel(), d.getScopeId(),
@@ -129,9 +137,26 @@ public class DashboardPresentationService {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
                 "One or more dashboards aren't enabled for presentations — enable \"Presentable\" from the dashboard's own edit view first");
         }
+        java.util.Set<Long> visibleOrgs = orgScope.currentAccessibleOrgIds();
+        Map<Long, DashboardScopeLabels.ScopeInfo> foundInfo = DashboardScopeLabels.resolve(found, orgRepo, projectRepo);
+        if (found.stream().anyMatch(d -> !orgScope.canSeeOrgOwned(visibleOrgs, foundInfo.get(d.getId()).organizationId()))) {
+            throw new org.springframework.security.access.AccessDeniedException("One or more dashboards belong to an organization you can't access");
+        }
+        // The editor only ever saw the dashboards visible to them — others' items (from orgs they
+        // can't access) must survive the save, appended after the edited ones.
+        List<Long> existingIds = itemRepo.findByPresentationIdOrderBySortOrderAsc(id).stream()
+            .map(DashboardPresentationItem::getDashboardId).toList();
+        List<Dashboard> existing = dashboardRepo.findAllById(existingIds);
+        Map<Long, DashboardScopeLabels.ScopeInfo> existingInfo = DashboardScopeLabels.resolve(existing, orgRepo, projectRepo);
+        java.util.Set<Long> hidden = existing.stream()
+            .filter(d -> !orgScope.canSeeOrgOwned(visibleOrgs, existingInfo.get(d.getId()).organizationId()))
+            .map(Dashboard::getId).collect(java.util.stream.Collectors.toSet());
+        List<Long> finalIds = new java.util.ArrayList<>(ids);
+        existingIds.stream().filter(hidden::contains).filter(x -> !finalIds.contains(x)).forEach(finalIds::add);
+
         itemRepo.deleteByPresentationId(id);
         int order = 0;
-        for (Long dashboardId : ids) {
+        for (Long dashboardId : finalIds) {
             DashboardPresentationItem item = new DashboardPresentationItem();
             item.setPresentationId(id);
             item.setDashboardId(dashboardId);

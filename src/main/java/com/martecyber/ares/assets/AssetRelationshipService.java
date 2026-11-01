@@ -31,6 +31,15 @@ public class AssetRelationshipService {
      * enriched with the related asset's code, identifier and type.
      */
     public List<AssetRelationshipDetailDto> listAllForAsset(Long assetId) {
+        return listAllForAsset(assetId, null);
+    }
+
+    /**
+     * Same as {@link #listAllForAsset(Long)}, keeping only relationships whose other end the
+     * caller can see ({@code visibleOrgIds}; null = unrestricted). A relationship is only shown
+     * when the caller can see both assets it joins.
+     */
+    public List<AssetRelationshipDetailDto> listAllForAsset(Long assetId, Set<Long> visibleOrgIds) {
         assets.findById(assetId).orElseThrow(() -> NotFoundException.of("asset", assetId));
 
         List<AssetRelationship> outgoing = repo.findByFromAssetId(assetId);
@@ -41,6 +50,7 @@ public class AssetRelationshipService {
         outgoing.forEach(r -> relatedIds.add(r.getToAssetId()));
         incoming.forEach(r -> relatedIds.add(r.getFromAssetId()));
         Map<Long, Asset> assetMap = assets.findAllById(relatedIds).stream()
+            .filter(a -> visibleOrgIds == null || visibleOrgIds.contains(a.getOrganizationId()))
             .collect(Collectors.toMap(Asset::getId, a -> a));
 
         List<AssetRelationshipDetailDto> result = new ArrayList<>();
@@ -48,14 +58,14 @@ public class AssetRelationshipService {
             Asset rel = assetMap.get(r.getToAssetId());
             if (rel == null) continue;
             result.add(new AssetRelationshipDetailDto(
-                rel.getId(), rel.getCode(), rel.getIdentifier(), rel.getType(),
+                rel.getId(), rel.getCode(), rel.getIdentifier(), rel.getDisplayName(), rel.getType(),
                 r.getType(), "outgoing"));
         }
         for (AssetRelationship r : incoming) {
             Asset rel = assetMap.get(r.getFromAssetId());
             if (rel == null) continue;
             result.add(new AssetRelationshipDetailDto(
-                rel.getId(), rel.getCode(), rel.getIdentifier(), rel.getType(),
+                rel.getId(), rel.getCode(), rel.getIdentifier(), rel.getDisplayName(), rel.getType(),
                 r.getType(), "incoming"));
         }
         return result;
@@ -91,7 +101,10 @@ public class AssetRelationshipService {
         }
 
         if (visited.isEmpty()) return List.of();
-        return assets.findAllById(visited).stream().toList();
+        // fromIds are caller-supplied: drop anything outside the org instead of echoing it back.
+        return assets.findAllById(visited).stream()
+            .filter(a -> orgId.equals(a.getOrganizationId()))
+            .toList();
     }
 
     /** Hard cap on visited nodes — protects the DB and the JVM from runaway BFS on densely-linked orgs. */
@@ -140,13 +153,35 @@ public class AssetRelationshipService {
     }
 
     public List<AssetRelationshipDto> listByOrganization(Long organizationId) {
-        return repo.findByOrganizationId(organizationId).stream()
+        return listByOrganization(organizationId, null);
+    }
+
+    /** Org relationships the caller can see both ends of ({@code visibleOrgIds}; null = unrestricted). */
+    public List<AssetRelationshipDto> listByOrganization(Long organizationId, Set<Long> visibleOrgIds) {
+        return onlyBetweenVisible(repo.findByOrganizationId(organizationId), visibleOrgIds).stream()
             .map(AssetRelationshipDto::from).toList();
     }
 
     public List<AssetRelationshipDto> listByProject(Long projectId) {
-        return repo.findByProjectId(projectId).stream()
+        return listByProject(projectId, null);
+    }
+
+    /** Project relationships the caller can see both ends of ({@code visibleOrgIds}; null = unrestricted). */
+    public List<AssetRelationshipDto> listByProject(Long projectId, Set<Long> visibleOrgIds) {
+        return onlyBetweenVisible(repo.findByProjectId(projectId), visibleOrgIds).stream()
             .map(AssetRelationshipDto::from).toList();
+    }
+
+    /** Drops every relationship with an end outside {@code visibleOrgIds} (null = keep all). */
+    List<AssetRelationship> onlyBetweenVisible(List<AssetRelationship> rels, Set<Long> visibleOrgIds) {
+        if (visibleOrgIds == null || rels.isEmpty()) return rels;
+        if (visibleOrgIds.isEmpty()) return List.of();
+        Set<Long> ends = new HashSet<>();
+        rels.forEach(r -> { ends.add(r.getFromAssetId()); ends.add(r.getToAssetId()); });
+        Set<Long> visible = new HashSet<>(assets.findIdsInOrganizations(ends, visibleOrgIds));
+        return rels.stream()
+            .filter(r -> visible.contains(r.getFromAssetId()) && visible.contains(r.getToAssetId()))
+            .toList();
     }
 
     public List<AssetRelationshipDto> listFrom(Long assetId) {
@@ -159,35 +194,57 @@ public class AssetRelationshipService {
         Asset from = assets.findById(fromAssetId).orElseThrow(() -> NotFoundException.of("asset", fromAssetId));
         Asset to   = assets.findById(req.toAssetId()).orElseThrow(() -> NotFoundException.of("asset", req.toAssetId()));
 
+        if (fromAssetId.equals(req.toAssetId())) {
+            throw new IllegalArgumentException("An asset cannot be linked to itself");
+        }
+        if (!java.util.Objects.equals(from.getOrganizationId(), to.getOrganizationId())) {
+            throw new IllegalArgumentException("Both assets must belong to the same organization");
+        }
+        if (AssetLinkType.AUTO_COMPUTED.contains(req.linkType())) {
+            throw new IllegalArgumentException(
+                "Link type '" + req.linkType() + "' is computed automatically and cannot be created manually");
+        }
         AssetLinkType.validate(from.getType(), req.linkType(), to.getType());
+
+        var existing = repo.findById(new AssetRelationshipId(fromAssetId, req.toAssetId(), req.linkType()));
+        if (existing.isPresent()) return AssetRelationshipDto.from(existing.get());
 
         AssetRelationship r = new AssetRelationship();
         r.setFromAssetId(fromAssetId);
         r.setToAssetId(req.toAssetId());
         r.setType(req.linkType());
-        r.setDirectional(true);
         r.setCreatedAt(OffsetDateTime.now());
         return AssetRelationshipDto.from(repo.save(r));
+    }
+
+    /** The full link matrix, for clients building a "create relationship" form. */
+    public List<com.martecyber.ares.assets.dto.AssetLinkTypeDto> linkTypes() {
+        List<com.martecyber.ares.assets.dto.AssetLinkTypeDto> out = new java.util.ArrayList<>();
+        AssetLinkType.matrix().forEach((fromType, byLink) -> byLink.forEach((linkType, toTypes) ->
+            out.add(new com.martecyber.ares.assets.dto.AssetLinkTypeDto(
+                linkType, fromType, toTypes.stream().sorted().toList(),
+                !AssetLinkType.AUTO_COMPUTED.contains(linkType)))));
+        out.sort(java.util.Comparator.comparing(com.martecyber.ares.assets.dto.AssetLinkTypeDto::fromType)
+            .thenComparing(com.martecyber.ares.assets.dto.AssetLinkTypeDto::linkType));
+        return out;
     }
 
     /** Idempotent link creation used by importers (e.g. network auto-linking). Validates the
      *  (fromType, linkType, toType) triple, same as the manual {@link #create} path. */
     @Transactional
     public void linkIfAbsent(Long fromAssetId, Long toAssetId, String linkType) {
+        // Primary-key lookup first (was: load every outgoing link of the asset and scan them).
+        // An existing row was validated when created, so neither asset needs loading.
+        if (repo.existsById(new AssetRelationshipId(fromAssetId, toAssetId, linkType))) return;
         Asset from = assets.findById(fromAssetId)
             .orElseThrow(() -> NotFoundException.of("asset", fromAssetId));
         Asset to = assets.findById(toAssetId)
             .orElseThrow(() -> NotFoundException.of("asset", toAssetId));
         AssetLinkType.validate(from.getType(), linkType, to.getType());
-
-        boolean exists = repo.findByFromAssetId(fromAssetId).stream()
-            .anyMatch(r -> r.getToAssetId().equals(toAssetId) && linkType.equals(r.getType()));
-        if (exists) return;
         AssetRelationship r = new AssetRelationship();
         r.setFromAssetId(fromAssetId);
         r.setToAssetId(toAssetId);
         r.setType(linkType);
-        r.setDirectional(true);
         r.setCreatedAt(OffsetDateTime.now());
         repo.save(r);
     }

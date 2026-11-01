@@ -11,6 +11,7 @@ public record ReportDto(
     Long id,
     Long organizationId,
     Long projectId,
+    String projectName,
     String type,
     String format,
     String status,
@@ -29,14 +30,18 @@ public record ReportDto(
     public record FieldValueDto(Long fieldTypeId, String fieldName, String content) {}
 
     public static ReportDto from(Report r) {
-        return from(r, 0, List.of());
+        return from(r, 0, List.of(), null);
     }
 
     public static ReportDto from(Report r, int findingCount, List<ReportField> fields) {
+        return from(r, findingCount, fields, null);
+    }
+
+    public static ReportDto from(Report r, int findingCount, List<ReportField> fields, String projectName) {
         List<FieldValueDto> fieldValues = fields.stream()
             .map(f -> new FieldValueDto(f.getFieldTypeId(), f.getFieldName(), f.getContent()))
             .toList();
-        return new ReportDto(r.getId(), r.getOrganizationId(), r.getProjectId(),
+        return new ReportDto(r.getId(), r.getOrganizationId(), r.getProjectId(), projectName,
             r.getType(), r.getFormat(), r.getStatus(), r.getTitle(),
             r.getTemplateId(), r.getFileId(),
             r.getReportObjectKey() != null,

@@ -173,6 +173,12 @@ public class AgentTaskTemplateService {
         return createFromTask(taskId, req, false);
     }
 
+    /** Owning project of a task — for the caller's access check before copying its config. */
+    public Long projectIdOfTask(Long taskId) {
+        return taskRepo.findById(taskId).map(AgentTask::getProjectId)
+            .orElseThrow(() -> NotFoundException.of("agent_task", taskId));
+    }
+
     @Transactional
     public AgentTaskTemplateDto createFromTask(Long taskId, FromTaskRequest req, boolean overwrite) {
         AgentTask task = taskRepo.findById(taskId)

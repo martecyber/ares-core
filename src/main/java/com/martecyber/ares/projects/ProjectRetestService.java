@@ -36,13 +36,16 @@ public class ProjectRetestService {
     private final FindingRepository findingRepo;
     private final FindingService findingService;
     private final UserRepository userRepo;
+    private final com.martecyber.ares.users.OrgScopeService orgScope;
 
     public ProjectRetestService(ProjectRetestFindingRepository linkRepo,
                                 ProjectRepository projectRepo,
                                 ProjectTypeRepository typeRepo,
                                 FindingRepository findingRepo,
                                 FindingService findingService,
-                                UserRepository userRepo) {
+                                UserRepository userRepo,
+                                com.martecyber.ares.users.OrgScopeService orgScope) {
+        this.orgScope = orgScope;
         this.linkRepo = linkRepo;
         this.projectRepo = projectRepo;
         this.typeRepo = typeRepo;
@@ -92,14 +95,20 @@ public class ProjectRetestService {
 
     @Transactional
     public void link(Long retestProjectId, List<Long> findingIds) {
-        requireRetestProject(retestProjectId);
+        Project retestProject = requireRetestProject(retestProjectId);
         if (findingIds == null || findingIds.isEmpty()) return;
 
         Long userId = currentUserId();
         OffsetDateTime now = OffsetDateTime.now();
         for (Long findingId : findingIds.stream().distinct().toList()) {
             if (linkRepo.existsByRetestProjectIdAndFindingId(retestProjectId, findingId)) continue;
-            if (!findingRepo.existsById(findingId)) throw NotFoundException.of("finding", findingId);
+            com.martecyber.ares.findings.Finding finding = findingRepo.findById(findingId).orElseThrow(() -> NotFoundException.of("finding", findingId));
+            // A retest re-verifies the client's own findings; another org's finding would leak
+            // into this project's views and reports.
+            Long findingOrg = projectRepo.findOrganizationIdById(finding.getProjectId()).orElse(null);
+            if (!retestProject.getOrganizationId().equals(findingOrg)) {
+                throw new IllegalArgumentException("Finding " + findingId + " belongs to a different organization");
+            }
             ProjectRetestFinding link = new ProjectRetestFinding();
             link.setRetestProjectId(retestProjectId);
             link.setFindingId(findingId);
@@ -118,6 +127,7 @@ public class ProjectRetestService {
     private Project requireRetestProject(Long projectId) {
         Project project = projectRepo.findById(projectId)
             .orElseThrow(() -> NotFoundException.of("project", projectId));
+        orgScope.assertCurrentProjectAccess(projectId);
         ProjectType type = project.getTypeId() != null ? typeRepo.findById(project.getTypeId()).orElse(null) : null;
         if (!isRetestType(type)) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,

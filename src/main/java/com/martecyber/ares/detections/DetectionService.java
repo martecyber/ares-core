@@ -37,10 +37,13 @@ import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 import java.time.OffsetDateTime;
 
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 import java.util.stream.Collectors;
 
 @Service
@@ -514,6 +517,23 @@ public class DetectionService {
     @Transactional
     public DetectionDto create(CreateDetectionRequest req) {
         orgScope.assertProjectAccess(currentAuth(), req.projectId());
+        String source = (req.sourceType() == null || req.sourceType().isBlank()) ? "ares" : req.sourceType();
+
+        String hash = computeDedupHash(req.projectId(), req.assetId(), source,
+                                       req.sourceTemplateId(), req.title());
+        var existing = repo.findByProjectIdAndDedupHash(req.projectId(), hash);
+        if (existing.isPresent()) {
+            Detection d = existing.get();
+            OffsetDateTime now = OffsetDateTime.now();
+            d.setOccurrenceCount(d.getOccurrenceCount() + 1);
+            d.setLastSeen(now);
+            d.setUpdatedAt(now);
+            Detection saved = repo.save(d);
+            recordHistory(saved.getId(), "reseen", null, null,
+                currentUserId(), currentUserName(), null, now);
+            return DetectionDto.from(saved, java.util.Map.of());
+        }
+
         Detection d = new Detection();
         d.setProjectId(req.projectId());
         d.setAssetId(req.assetId());
@@ -525,13 +545,14 @@ public class DetectionService {
         d.setTitle(req.title());
         d.setDescription(req.description());
         d.setRawData(req.rawData());
+        d.setSourceType(source);
+        d.setSourceTemplateId(req.sourceTemplateId());
+        d.setDedupHash(hash);
         OffsetDateTime now = OffsetDateTime.now();
         d.setCreatedAt(now);
         d.setUpdatedAt(now);
         d.setLastSeen(now);
         Detection saved = repo.save(d);
-        // Default: detected_at asset is also the first "affected" asset. The
-        // operator can widen the list later via PUT /affected-assets.
         if (saved.getAssetId() != null) {
             affectedRepo.save(new DetectionAffectedAsset(saved.getId(), saved.getAssetId()));
         }
@@ -539,6 +560,23 @@ public class DetectionService {
             currentUserId(), currentUserName(), null, now);
         workflowEventDispatcher.onDetectionCreated(saved);
         return DetectionDto.from(saved, java.util.Map.of());
+    }
+
+    private String computeDedupHash(Long projectId, Long assetId, String sourceType,
+                                     String templateId, String title) {
+        String key = projectId + "|" + sourceType + "|" + (assetId != null ? assetId : "null") + "|";
+        key += (templateId != null && !templateId.isBlank())
+            ? templateId
+            : (title != null ? title.trim().toLowerCase() : "");
+        try {
+            MessageDigest md = MessageDigest.getInstance("SHA-256");
+            byte[] hash = md.digest(key.getBytes(StandardCharsets.UTF_8));
+            StringBuilder sb = new StringBuilder();
+            for (byte b : hash) sb.append(String.format("%02x", b));
+            return sb.toString();
+        } catch (Exception e) {
+            return UUID.randomUUID().toString().replace("-", "");
+        }
     }
 
     /** Outcome of an external-source ingest: the detection plus whether it was newly created. */

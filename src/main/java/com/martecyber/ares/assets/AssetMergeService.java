@@ -20,7 +20,7 @@ import java.util.Set;
 @Service
 public class AssetMergeService {
 
-    private static final Set<String> FIRST_CLASS_KEYS = Set.of("identifier", "hostnames", "hostSubtype");
+    private static final Set<String> FIRST_CLASS_KEYS = Set.of("identifier", "hostnames", "hostSubtype", "displayName");
 
     private final AssetRepository assetRepo;
     private final AssetRelationshipRepository relRepo;
@@ -28,6 +28,7 @@ public class AssetMergeService {
     private final AffectionAssetRepository affectionAssetRepo;
     private final ProjectAssetAccessRepository projectAccessRepo;
     private final AssetService assetService;
+    private final AssetExternalIdRepository externalIdRepo;
     private final ObjectMapper mapper;
 
     public AssetMergeService(AssetRepository assetRepo,
@@ -36,6 +37,7 @@ public class AssetMergeService {
                               AffectionAssetRepository affectionAssetRepo,
                               ProjectAssetAccessRepository projectAccessRepo,
                               AssetService assetService,
+                              AssetExternalIdRepository externalIdRepo,
                               ObjectMapper mapper) {
         this.assetRepo        = assetRepo;
         this.relRepo          = relRepo;
@@ -43,6 +45,7 @@ public class AssetMergeService {
         this.affectionAssetRepo = affectionAssetRepo;
         this.projectAccessRepo  = projectAccessRepo;
         this.assetService     = assetService;
+        this.externalIdRepo   = externalIdRepo;
         this.mapper           = mapper;
     }
 
@@ -85,6 +88,10 @@ public class AssetMergeService {
             projectAccessRepo.deleteByProjectIdAndAssetId(pa.getProjectId(), sourceId);
         });
 
+        // ── 4b. Transfer tool ids — otherwise they'd cascade-delete with the source and the
+        //        next sync from that tool would recreate the duplicate just merged away.
+        externalIdRepo.reassign(sourceId, target.getId());
+
         // ── 5. Apply per-field resolutions ──────────────────────────────────
         Map<String, Object> sourceMeta = parseMeta(source.getMetadata());
         Map<String, Object> targetMeta = parseMeta(target.getMetadata());
@@ -100,6 +107,10 @@ public class AssetMergeService {
             String mode = fr.mode() != null ? fr.mode() : "target";
 
             if ("identifier".equals(key)) {
+                if ("custom".equals(mode) && !AssetType.HOST.equals(target.getType())) {
+                    throw new IllegalArgumentException(
+                        "Only a host's Name can be typed in a merge; pick the source or target identifier");
+                }
                 identifierMode = mode;
                 target.setIdentifier(switch (mode) {
                     case "source" -> source.getIdentifier();
@@ -114,6 +125,16 @@ public class AssetMergeService {
                     case "merge"  -> mergeStringLists(target.getHostnames(), source.getHostnames());
                     case "custom" -> toStringList(fr.customValue());
                     default        -> new ArrayList<>(target.getHostnames());
+                });
+                continue;
+            }
+            if ("displayName".equals(key)) {
+                resolvedMetaKeys.add(key);
+                target.setDisplayName(switch (mode) {
+                    case "source" -> source.getDisplayName();
+                    case "custom" -> AssetIdentifierRules.normalizeDisplayName(
+                        fr.customValue() == null ? null : String.valueOf(fr.customValue()));
+                    default        -> target.getDisplayName();
                 });
                 continue;
             }
@@ -157,6 +178,11 @@ public class AssetMergeService {
                 //noinspection unchecked
                 resolvedBaseUrls = (List<String>) resolved;
             }
+        }
+
+        // Display name with no explicit resolution: target wins, else keep the source's.
+        if (!resolvedMetaKeys.contains("displayName") && target.getDisplayName() == null) {
+            target.setDisplayName(source.getDisplayName());
         }
 
         // Residual metadata keys with no explicit resolution: auto-merge (union, target wins).
@@ -212,7 +238,7 @@ public class AssetMergeService {
             if (r.getToAssetId().equals(targetId)) continue;
             String key = r.getToAssetId() + ":" + r.getType();
             if (existingOut.add(key)) // add() returns false if already present
-                relRepo.save(buildRel(targetId, r.getToAssetId(), r.getType(), r.isDirectional(), r.getCreatedAt()));
+                relRepo.save(buildRel(targetId, r.getToAssetId(), r.getType(), r.getCreatedAt()));
         }
 
         // Incoming: X → source  →  X → target  (skip target ↔ source)
@@ -221,7 +247,7 @@ public class AssetMergeService {
             if (r.getFromAssetId().equals(targetId)) continue;
             String key = r.getFromAssetId() + ":" + r.getType();
             if (existingIn.add(key))
-                relRepo.save(buildRel(r.getFromAssetId(), targetId, r.getType(), r.isDirectional(), r.getCreatedAt()));
+                relRepo.save(buildRel(r.getFromAssetId(), targetId, r.getType(), r.getCreatedAt()));
         }
     }
 
@@ -255,10 +281,10 @@ public class AssetMergeService {
         return result;
     }
 
-    private static AssetRelationship buildRel(Long from, Long to, String type, boolean directional, OffsetDateTime at) {
+    private static AssetRelationship buildRel(Long from, Long to, String type, OffsetDateTime at) {
         AssetRelationship r = new AssetRelationship();
         r.setFromAssetId(from); r.setToAssetId(to); r.setType(type);
-        r.setDirectional(directional); r.setCreatedAt(at != null ? at : OffsetDateTime.now());
+        r.setCreatedAt(at != null ? at : OffsetDateTime.now());
         return r;
     }
 

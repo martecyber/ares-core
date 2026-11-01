@@ -225,6 +225,9 @@ public class ReportGenerationService {
 
         Project project = projectRepo.findById(req.projectId())
             .orElseThrow(() -> NotFoundException.of("project", req.projectId()));
+        if (!project.getOrganizationId().equals(req.organizationId())) {
+            throw new IllegalArgumentException("organizationId does not match the project's organization");
+        }
 
         // Determine findings: RETEST (linked findings, from their own origin projects) >
         // user-selected > iteration range (MONITOR) > ready-to-report fallback
@@ -367,8 +370,8 @@ public class ReportGenerationService {
     /** Builds a structured JSON export of all report data. */
     public Map<String, Object> exportJson(Long reportId) {
         Report report = reportRepo.findById(reportId).orElseThrow(() -> NotFoundException.of("report", reportId));
-        Project project = projectRepo.findById(report.getProjectId())
-            .orElseThrow(() -> NotFoundException.of("project", report.getProjectId()));
+        Project project = report.getProjectId() != null
+            ? projectRepo.findById(report.getProjectId()).orElse(null) : null;
 
         List<Long> findingIds = reportFindingRepo.findByReportId(reportId).stream()
             .map(ReportFinding::getFindingId).distinct().toList();
@@ -399,41 +402,47 @@ public class ReportGenerationService {
         rMap.put("createdAt", report.getCreatedAt());
         root.put("report", rMap);
 
-        List<Map<String, Object>> scopeList = scopeEntryRepo
-            .findByProjectIdOrderByCreatedAtAsc(project.getId()).stream()
-            .map(s -> {
-                Map<String, Object> sm = new LinkedHashMap<>();
-                sm.put("kind", s.getKind());
-                sm.put("value", s.getValue());
-                sm.put("inScope", s.isInScope() ? "IN" : "OUT");
-                if (s.getNotes() != null) sm.put("notes", s.getNotes());
-                return sm;
+        if (project != null) {
+            List<Map<String, Object>> scopeList = scopeEntryRepo
+                .findByProjectIdOrderByCreatedAtAsc(project.getId()).stream()
+                .map(s -> {
+                    Map<String, Object> sm = new LinkedHashMap<>();
+                    sm.put("kind", s.getKind());
+                    sm.put("value", s.getValue());
+                    sm.put("inScope", s.isInScope() ? "IN" : "OUT");
+                    if (s.getNotes() != null) sm.put("notes", s.getNotes());
+                    return sm;
+                }).toList();
+
+            Map<String, Object> eMap = new LinkedHashMap<>();
+            eMap.put("id", project.getId());
+            eMap.put("name", project.getName());
+            eMap.put("code", project.getCode());
+            eMap.put("startDate", project.getStartDate());
+            eMap.put("endDate", project.getEndDate());
+            eMap.put("scope", scopeList);
+            root.put("project", eMap);
+        }
+
+        if (project != null) {
+            List<ProjectMember> members = projectMemberRepo.findByIdProjectId(project.getId());
+            Map<Long, User> usersById = userRepo.findAllById(
+                members.stream().map(m -> m.getId().getUserId()).toList()
+            ).stream().collect(Collectors.toMap(User::getId, u -> u));
+            List<Map<String, Object>> teamList = members.stream().map(m -> {
+                User u = usersById.get(m.getId().getUserId());
+                Map<String, Object> tm = new LinkedHashMap<>();
+                tm.put("userId", m.getId().getUserId());
+                tm.put("role", m.getId().getRole());
+                tm.put("displayName", u != null ? u.getDisplayName() : "");
+                tm.put("email", u != null ? u.getEmail() : "");
+                tm.put("addedAt", m.getAddedAt());
+                return tm;
             }).toList();
-
-        Map<String, Object> eMap = new LinkedHashMap<>();
-        eMap.put("id", project.getId());
-        eMap.put("name", project.getName());
-        eMap.put("code", project.getCode());
-        eMap.put("startDate", project.getStartDate());
-        eMap.put("endDate", project.getEndDate());
-        eMap.put("scope", scopeList);
-        root.put("project", eMap);
-
-        List<ProjectMember> members = projectMemberRepo.findByIdProjectId(project.getId());
-        Map<Long, User> usersById = userRepo.findAllById(
-            members.stream().map(m -> m.getId().getUserId()).toList()
-        ).stream().collect(Collectors.toMap(User::getId, u -> u));
-        List<Map<String, Object>> teamList = members.stream().map(m -> {
-            User u = usersById.get(m.getId().getUserId());
-            Map<String, Object> tm = new LinkedHashMap<>();
-            tm.put("userId", m.getId().getUserId());
-            tm.put("role", m.getId().getRole());
-            tm.put("displayName", u != null ? u.getDisplayName() : "");
-            tm.put("email", u != null ? u.getEmail() : "");
-            tm.put("addedAt", m.getAddedAt());
-            return tm;
-        }).toList();
-        root.put("team", teamList);
+            root.put("team", teamList);
+        } else {
+            root.put("team", List.of());
+        }
 
         Map<String, String> fieldsMap = new LinkedHashMap<>();
         savedFields.forEach(f -> fieldsMap.put(f.getFieldName(), f.getContent()));
@@ -529,9 +538,11 @@ public class ReportGenerationService {
             fm.put("affections", affectionsList);
             fm.put("affectedAssets", new ArrayList<>(uniqueAffectedAssets.values()));
 
-            List<Map<String, Object>> retestHistory = buildRetestHistory(f, project);
-            fm.put("retestHistory", retestHistory);
-            fm.put("retestNote", buildRetestNote(retestHistory));
+            if (project != null) {
+                List<Map<String, Object>> retestHistory = buildRetestHistory(f, project);
+                fm.put("retestHistory", retestHistory);
+                fm.put("retestNote", buildRetestNote(retestHistory));
+            }
 
             return fm;
         }).toList();
@@ -539,12 +550,121 @@ public class ReportGenerationService {
 
         // detections (+ per-iteration breakdown) — same scoping rule as generateDocx: the
         // iteration labels carried by the findings above when present, else the whole project.
-        TreeSet<String> iterationLabels = findingIterationLabels(findings);
-        List<Detection> detections = resolveReportDetections(project.getId(), iterationLabels);
-        root.put("detections", buildDetectionsList(detections));
-        root.put("detectionsByIteration", buildDetectionsByIteration(project.getId(), iterationLabels));
+        if (project != null) {
+            TreeSet<String> iterationLabels = findingIterationLabels(findings);
+            List<Detection> detections = resolveReportDetections(project.getId(), iterationLabels);
+            root.put("detections", buildDetectionsList(detections));
+            root.put("detectionsByIteration", buildDetectionsByIteration(project.getId(), iterationLabels));
+        }
 
         return root;
+    }
+
+    /**
+     * Builds a preview-friendly representation of a report for in-UI rendering.
+     * Reuses the exportJson data model and adds charts (base64 PNG), sections, and
+     * resolved field content (template vars expanded).
+     */
+    public Map<String, Object> buildPreviewData(Long reportId) {
+        Map<String, Object> data = exportJson(reportId);
+
+        Report report = reportRepo.findById(reportId).orElseThrow();
+        Project project = report.getProjectId() != null
+            ? projectRepo.findById(report.getProjectId()).orElse(null) : null;
+
+        // Severity counts for charts
+        List<ReportFinding> links = reportFindingRepo.findByReportId(reportId);
+        List<Long> allFindingIds = links.stream().map(ReportFinding::getFindingId).distinct().toList();
+        List<Finding> allFindings = findingRepo.findAllById(allFindingIds);
+        Map<String, Long> bySeverity = allFindings.stream()
+            .collect(Collectors.groupingBy(
+                f -> f.getSeverity() != null ? f.getSeverity().toLowerCase() : "unknown",
+                Collectors.counting()));
+
+        // Charts as base64
+        Map<String, String> charts = new LinkedHashMap<>();
+        System.setProperty("java.awt.headless", "true");
+        try {
+            byte[] piePng = renderChartPng("pie", bySeverity);
+            charts.put("pie", java.util.Base64.getEncoder().encodeToString(piePng));
+        } catch (Exception ex) {
+            log.error("Preview chart (pie) rendering failed: {}", ex.getMessage());
+        }
+        try {
+            byte[] barPng = renderChartPng("bar", bySeverity);
+            charts.put("bar", java.util.Base64.getEncoder().encodeToString(barPng));
+        } catch (Exception ex) {
+            log.error("Preview chart (bar) rendering failed: {}", ex.getMessage());
+        }
+        data.put("charts", charts);
+
+        // Sections: group findings by section_variable
+        Map<String, ReportSection> sectionMap = loadSections(links);
+        List<Finding> defaultFindings = findingRepo.findAllById(
+            links.stream().filter(ReportFinding::isDefaultSection)
+                .map(ReportFinding::getFindingId).distinct().toList());
+
+        Map<Long, String> scoreTypeNames = findingScoreTypeRepo.findAll().stream()
+            .collect(Collectors.toMap(FindingScoreType::getId, FindingScoreType::getTitle));
+        Map<Long, String> statusNames = findingStatusRepo.findAll().stream()
+            .collect(Collectors.toMap(FindingStatus::getId, fs -> fs.getName() != null ? fs.getName() : ""));
+
+        List<Map<String, Object>> sections = new ArrayList<>();
+        // Default section
+        Map<String, Object> defaultSec = new LinkedHashMap<>();
+        defaultSec.put("variable", "default");
+        defaultSec.put("label", "Default");
+        defaultSec.put("findings", buildPreviewFindings(defaultFindings, scoreTypeNames, statusNames));
+        sections.add(defaultSec);
+        // Named sections
+        for (ReportSection sec : sectionMap.values()) {
+            Map<String, Object> secMap = new LinkedHashMap<>();
+            secMap.put("variable", sec.variable());
+            secMap.put("label", sec.label());
+            secMap.put("findings", buildPreviewFindings(sec.findings(), scoreTypeNames, statusNames));
+            sections.add(secMap);
+        }
+        data.put("sections", sections);
+
+        // Resolved field content (template vars expanded)
+        List<ReportField> savedFields = reportFieldRepo.findByReportId(reportId);
+        Organization org = organizationRepo.findById(report.getOrganizationId()).orElse(null);
+        List<Detection> detections = project != null
+            ? resolveReportDetections(project.getId(), findingIterationLabels(allFindings))
+            : List.of();
+        Map<String, String> resolvedFields = new LinkedHashMap<>();
+        for (ReportField field : savedFields) {
+            String resolved = resolveFieldTemplate(
+                field.getContent() != null ? field.getContent() : "", org, project,
+                defaultFindings, detections);
+            resolvedFields.put(field.getFieldName(), resolved);
+        }
+        data.put("resolvedFields", resolvedFields);
+
+        return data;
+    }
+
+    private List<Map<String, Object>> buildPreviewFindings(List<Finding> findings,
+            Map<Long, String> scoreTypeNames, Map<Long, String> statusNames) {
+        return findings.stream().map(f -> {
+            Map<String, Object> fm = new LinkedHashMap<>();
+            fm.put("id", f.getId());
+            fm.put("code", f.getCode());
+            fm.put("title", f.getTitle());
+            fm.put("severity", f.getSeverity() != null ? f.getSeverity().toUpperCase() : "");
+            fm.put("statusName", statusNames.getOrDefault(f.getStatusId(), ""));
+
+            FindingScore defScore = findingScoreRepo.findByFindingId(f.getId()).stream()
+                .filter(FindingScore::isDefault).findFirst().orElse(null);
+            if (defScore != null) {
+                Map<String, Object> ds = new LinkedHashMap<>();
+                ds.put("type", scoreTypeNames.getOrDefault(defScore.getTypeId(), ""));
+                ds.put("score", defScore.getScore());
+                if (defScore.getVector() != null) ds.put("vector", defScore.getVector());
+                fm.put("defaultScore", ds);
+            }
+            return fm;
+        }).toList();
     }
 
     /**
@@ -1129,6 +1249,7 @@ public class ReportGenerationService {
 
         // Top-level chart images: {{@chartPie}} and {{@chartBar}} in the Word template.
         // Also available via {{chart:pie}} / {{chart:bar}} tokens inside field HTML.
+        List<String> chartWarnings = new ArrayList<>();
         System.setProperty("java.awt.headless", "true");
         try {
             byte[] piePng = renderChartPng("pie", bySeverity);
@@ -1140,7 +1261,8 @@ public class ReportGenerationService {
                 com.deepoove.poi.data.Pictures.ofBytes(barPng, com.deepoove.poi.data.PictureType.PNG)
                     .size(300, 210).create());
         } catch (Exception ex) {
-            log.warn("Server-side chart rendering failed — {{@chartPie}}/{{@chartBar}} will be absent: {}", ex.getMessage());
+            log.error("Server-side chart rendering failed — {{@chartPie}}/{{@chartBar}} will be absent", ex);
+            chartWarnings.add("Chart rendering failed: " + ex.getMessage());
         }
 
         // findings
@@ -1214,6 +1336,10 @@ public class ReportGenerationService {
             .bind("detectionsByIteration", loopRow);
         sections.keySet().forEach(variable -> configureBuilder.bind(variable, loopRow));
         Configure configure = configureBuilder.build();
+
+        if (!chartWarnings.isEmpty()) {
+            report.setError(String.join("; ", chartWarnings));
+        }
 
         try (InputStream tplStream = new ByteArrayInputStream(templateBytes);
              ByteArrayOutputStream out = new ByteArrayOutputStream()) {
@@ -1529,8 +1655,8 @@ public class ReportGenerationService {
         }
 
         // Scalar replacements
-        s = s.replace("{{project.name}}",          project.getName() != null ? project.getName() : "");
-        s = s.replace("{{project.code}}",          project.getCode() != null ? project.getCode() : "");
+        s = s.replace("{{project.name}}",          project != null && project.getName() != null ? project.getName() : "");
+        s = s.replace("{{project.code}}",          project != null && project.getCode() != null ? project.getCode() : "");
         s = s.replace("{{organization.name}}",     org != null && org.getName() != null ? org.getName() : "");
         s = s.replace("{{findingsCount}}",          String.valueOf(findings.size()));
         s = s.replace("{{findingsCountCritical}}",  String.valueOf(bySev.getOrDefault("critical", 0L)));

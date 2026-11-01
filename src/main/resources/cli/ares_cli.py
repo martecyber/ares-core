@@ -240,6 +240,21 @@ class AresClient:
         if aql:      params["aql"] = aql
         return self.get("/detections", params=params)
 
+    _PRIORITY_TO_SEVERITY = {"P0": "critical", "P1": "high", "P2": "medium", "P3": "low", "P4": "info"}
+
+    def create_detection(self, project_id: int, title: str, priority: str,
+                         description: str = None, source: str = "ares",
+                         source_template_id: str = None, asset_id: int = None,
+                         raw_data: str = None, status: str = "new") -> dict:
+        severity = self._PRIORITY_TO_SEVERITY.get(priority.upper(), "info")
+        body: dict = {"projectId": project_id, "title": title, "severity": severity,
+                      "status": status, "sourceType": source}
+        if description:        body["description"] = description
+        if source_template_id: body["sourceTemplateId"] = source_template_id
+        if asset_id:           body["assetId"] = asset_id
+        if raw_data:           body["rawData"] = raw_data
+        return self.post("/detections", json=body)
+
     # ── Finding methods ──────────────────────────────────────────────────────
 
     def list_findings(self, org_id: int = None, project_id: int = None,
@@ -957,6 +972,58 @@ def cmd_detections(args, cfg: dict = None, ctx: dict = None):
         print(f"Error: {e.response.status_code} {e.response.text[:200]}", file=sys.stderr)
         sys.exit(1)
 
+def cmd_detect(args, cfg: dict = None, ctx: dict = None):
+    """Create a custom detection (manual / AI-agent research)."""
+    if cfg is None: cfg = load_config()
+    require_config(cfg)
+    client = AresClient(cfg["server"], cfg["api_key"])
+
+    org_slug = args.org or (ctx and ctx.get("org_slug"))
+    if not org_slug:
+        print("--org is required.", file=sys.stderr); sys.exit(1)
+    org = client.find_org(org_slug)
+    if not org:
+        print(f"Organization '{org_slug}' not found.", file=sys.stderr); sys.exit(1)
+
+    proj_code = args.project or (ctx and ctx.get("proj_code"))
+    if not proj_code:
+        print("--project is required.", file=sys.stderr); sys.exit(1)
+    proj = client.find_project(org["id"], proj_code)
+    if not proj:
+        print(f"Project '{proj_code}' not found.", file=sys.stderr); sys.exit(1)
+
+    asset_id = None
+    if args.asset:
+        assets = client.list_assets(project_id=proj["id"], q=args.asset, size=1)
+        items = assets.get("items", [])
+        if not items:
+            print(f"Asset '{args.asset}' not found in project.", file=sys.stderr); sys.exit(1)
+        asset_id = items[0]["id"]
+
+    try:
+        result = client.create_detection(
+            project_id=proj["id"],
+            title=args.title,
+            priority=args.priority,
+            description=args.description,
+            source=args.source,
+            source_template_id=args.source_id,
+            asset_id=asset_id,
+            raw_data=args.raw_data,
+            status=args.status or "new",
+        )
+        fmt = getattr(args, "format", "table")
+        if fmt == "json":
+            print(json.dumps(result, indent=2, default=str))
+        else:
+            p = result.get('priority', '?')
+            plabel = f"P{p}" if isinstance(p, int) else str(p)
+            print(f"Detection created: id={result['id']}  title={result['title']}  "
+                  f"priority={plabel}  source={result.get('sourceType', '—')}")
+    except requests.HTTPError as e:
+        print(f"Error: {e.response.status_code} {e.response.text[:200]}", file=sys.stderr)
+        sys.exit(1)
+
 def cmd_findings(args, cfg: dict = None, ctx: dict = None):
     if cfg is None: cfg = load_config()
     require_config(cfg)
@@ -1472,6 +1539,9 @@ Commands:
                         List assets in current context
   detections [--severity SEV] [--status ST] [-q QUERY] [--aql QUERY] [--size N] [--page N]
                         List detections in current project
+  detect --title TITLE --priority P0..P4 [--description DESC] [--source SRC] [--source-id ID]
+         [--asset CODE] [--raw-data JSON] [--format table|json]
+                        Create a custom detection (manual / AI-agent research)
   findings [--severity SEV] [--drafts] [-q QUERY] [--aql QUERY] [--size N] [--page N]
                         List findings in current context
   scope [--format table|json|list]
@@ -1627,6 +1697,32 @@ def run_cli_command(line: str, cfg: dict, ctx: dict, client: AresClient):
         a.org = ctx.get("org_slug"); a.project = ctx.get("proj_code")
         try:
             cmd_detections(a, cfg=cfg, ctx=ctx)
+        except SystemExit:
+            pass
+        except Exception as e:
+            print(f"Error: {e}")
+
+    elif cmd == "detect":
+        p = argparse.ArgumentParser(prog="detect", add_help=False, exit_on_error=False)
+        p.add_argument("--title",    required=True)
+        p.add_argument("--priority", required=True, choices=["P0", "P1", "P2", "P3", "P4"])
+        p.add_argument("--description", default=None)
+        p.add_argument("--source",   default="ares")
+        p.add_argument("--source-id", default=None)
+        p.add_argument("--asset",    default=None)
+        p.add_argument("--status",   default="new")
+        p.add_argument("--raw-data", default=None)
+        p.add_argument("--format",   default="table", choices=["table", "json"])
+        try:
+            a = p.parse_args(rest)
+        except (argparse.ArgumentError, SystemExit):
+            print("Usage: detect --title TITLE --priority P0..P4 [--description DESC] [--source SRC] "
+                  "[--source-id ID] [--asset CODE] [--raw-data JSON] [--format table|json]"); return
+        if not ctx.get("org_slug") or not ctx.get("proj_code"):
+            print("Set an org and project first: org <SLUG> / proj <CODE>"); return
+        a.org = ctx.get("org_slug"); a.project = ctx.get("proj_code")
+        try:
+            cmd_detect(a, cfg=cfg, ctx=ctx)
         except SystemExit:
             pass
         except Exception as e:
@@ -1933,6 +2029,28 @@ def main():
     p_detections.add_argument("--format", default="table", choices=["table", "json", "list"],
                               help="Output format: table (default), json, or list (one title per line)")
 
+    # ── detect subcommand (create custom detection) ────────────────────────
+    p_detect = sub.add_parser("detect", help="Create a custom detection (manual / AI-agent research)")
+    p_detect.add_argument("--org",     required=True, help="Organization slug")
+    p_detect.add_argument("--project", required=True, help="Project code")
+    p_detect.add_argument("--title",    required=True, help="Detection title")
+    p_detect.add_argument("--priority", required=True,
+                          choices=["P0", "P1", "P2", "P3", "P4"],
+                          help="Priority (P0=most critical .. P4=informational)")
+    p_detect.add_argument("--description", default=None, help="Detailed description (Markdown)")
+    p_detect.add_argument("--source", default="ares",
+                          help="Source identifier shown in the UI (default: ares)")
+    p_detect.add_argument("--source-id", default=None,
+                          help="External template/finding ID for deduplication (e.g. CVE-2024-1234)")
+    p_detect.add_argument("--asset", default=None,
+                          help="Asset code or search term to attach the detection to")
+    p_detect.add_argument("--status", default="new",
+                          help="Initial status (default: new)")
+    p_detect.add_argument("--raw-data", default=None,
+                          help="Arbitrary JSON payload stored as raw_data")
+    p_detect.add_argument("--format", default="table", choices=["table", "json"],
+                          help="Output format (default: table)")
+
     # ── findings subcommand ──────────────────────────────────────────────────
     p_findings = sub.add_parser("findings", help="List findings")
     p_findings.add_argument("--org",     help="Organization slug")
@@ -2059,6 +2177,7 @@ def main():
     elif args.command == "projects":  cmd_projects(args, cfg=cfg)
     elif args.command == "assets":    cmd_assets(args, cfg=cfg)
     elif args.command == "detections": cmd_detections(args, cfg=cfg)
+    elif args.command == "detect":    cmd_detect(args, cfg=cfg)
     elif args.command == "findings":  cmd_findings(args, cfg=cfg)
     elif args.command == "scope":     cmd_scope(args, cfg=cfg)
     elif args.command == "load":      cmd_load(args, cfg=cfg)

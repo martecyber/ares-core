@@ -60,6 +60,9 @@ class DashboardServiceTest {
 
         when(repo.save(any())).thenAnswer(inv -> inv.getArgument(0));
         when(repo.saveAndFlush(any())).thenAnswer(inv -> inv.getArgument(0));
+        // Unrestricted viewer by default (platform admin: null = every org); real visibility rule.
+        when(orgScope.currentAccessibleOrgIds()).thenReturn(null);
+        when(orgScope.canSeeOrgOwned(any(), any())).thenCallRealMethod();
         when(widgetRepo.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
         setAuth("7"); // no special authorities — plain authenticated user by default
@@ -264,6 +267,27 @@ class DashboardServiceTest {
         assertEquals(1, result.size());
         assertEquals("Security metrics", result.get(0).name());
         assertEquals("Acme Corp", result.get(0).scopeLabel());
+    }
+
+    @Test
+    void browseDashboardsHidesOrganizationsTheCallerCannotAccess() {
+        Dashboard platformDb = dashboard(1L, DashboardLevel.PLATFORM, null, false);
+        platformDb.setPresentable(true);
+        Dashboard orgDb = dashboard(2L, DashboardLevel.ORGANIZATION, 5L, false);
+        orgDb.setPresentable(true);
+        when(repo.findAll(any(org.springframework.data.domain.PageRequest.class)))
+            .thenReturn(new PageImpl<>(List.of(platformDb, orgDb)));
+        Organization org = new Organization();
+        ReflectionTestUtils.setField(org, "id", 5L);
+        org.setName("Acme Corp");
+        when(orgRepo.findAllById(List.of(5L))).thenReturn(List.of(org));
+        when(projectRepo.findAllById(List.of())).thenReturn(List.of());
+        when(orgRepo.findAllById(List.of())).thenReturn(List.of());
+        when(orgScope.currentAccessibleOrgIds()).thenReturn(java.util.Set.of(99L)); // operator of another org
+
+        var result = service.browseDashboards(null);
+
+        assertEquals(List.of(1L), result.stream().map(e -> e.id()).toList());
     }
 
     @Test

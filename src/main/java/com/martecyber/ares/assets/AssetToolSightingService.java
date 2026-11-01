@@ -34,10 +34,22 @@ public class AssetToolSightingService {
         }
     }
 
-    private final AssetToolSightingRepository repo;
+    /** A source tool's own id for an asset (see {@link AssetExternalId}). */
+    public record ExternalIdDto(String tool, String externalId, OffsetDateTime createdAt) {}
 
-    public AssetToolSightingService(AssetToolSightingRepository repo) {
+    private final AssetToolSightingRepository repo;
+    private final AssetExternalIdRepository externalIdRepo;
+
+    public AssetToolSightingService(AssetToolSightingRepository repo, AssetExternalIdRepository externalIdRepo) {
         this.repo = repo;
+        this.externalIdRepo = externalIdRepo;
+    }
+
+    /** Tool ids integrations recorded for this asset — what keeps re-syncs from duplicating it. */
+    public List<ExternalIdDto> listExternalIds(Long assetId) {
+        return externalIdRepo.findByAssetIdOrderByToolAscExternalIdAsc(assetId).stream()
+            .map(e -> new ExternalIdDto(e.getTool(), e.getExternalId(), e.getCreatedAt()))
+            .toList();
     }
 
     /** REQUIRES_NEW: callers (import pipelines) invoke this once per resolved asset inside their

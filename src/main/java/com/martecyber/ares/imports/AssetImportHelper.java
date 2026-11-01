@@ -47,13 +47,14 @@ public class AssetImportHelper {
     public static final String HOSTNAME_HINTS_KEY = AssetMetadataKeys.HOSTNAME_HINTS_KEY;
 
     /**
-     * Reserved metadata key pair carrying a source tool's own stable host identifier (Tenable
-     * asset.id, Greenbone/GVM asset_id, …) for a HOST ParsedAsset. When present, {@link
-     * #resolveOrCreateHost} resolves via {@link AssetExternalIdRepository} first — trusting it
-     * over the IP/interface chain, since the tool's own id survives an active-IP change (DHCP
-     * reassignment, agent vs. network scan reporting a different NIC) that would otherwise make
-     * {@link #resolveOrCreateHost}'s IP-based lookup miss and create a duplicate host. Both keys
-     * are stripped before persisting metadata, same as {@link #HOSTNAME_HINTS_KEY}.
+     * Reserved metadata key pair carrying a source tool's own stable asset identifier (Tenable
+     * asset.id, Greenbone/GVM asset_id, CrowdStrike device_id, …) for a ParsedAsset of any type.
+     * When present, {@link #resolveOrCreate} resolves via {@link AssetExternalIdRepository} first
+     * (same organization and type) — trusting it over the natural key, since the tool's own id
+     * survives drift that would otherwise make the lookup miss and create a duplicate (a host's
+     * active IP changing between syncs). The mapping is recorded on whatever asset the import
+     * resolves to or creates. Both keys are stripped before persisting metadata, same as
+     * {@link #HOSTNAME_HINTS_KEY}.
      */
     public static final String EXTERNAL_ID_TOOL_KEY = AssetMetadataKeys.EXTERNAL_ID_TOOL_KEY;
     public static final String EXTERNAL_ID_VALUE_KEY = AssetMetadataKeys.EXTERNAL_ID_VALUE_KEY;
@@ -119,17 +120,31 @@ public class AssetImportHelper {
         if (AssetType.HOST.equals(pa.getType())) {
             return resolveOrCreateHost(organizationId, pa);
         }
+        String extTool = externalIdTool(pa.getMetadata());
+        String extValue = externalIdValue(pa.getMetadata());
+        java.util.Optional<Asset> byExternalId = findByExternalId(organizationId, pa.getType(), extTool, extValue);
+        if (byExternalId.isPresent()) return byExternalId.get().getId();
+        return recordExternalIdIfAbsent(organizationId, resolveOrCreateByIdentifier(organizationId, pa), extTool, extValue);
+    }
+
+    private Long resolveOrCreateByIdentifier(Long organizationId, ParsedAsset pa) {
 
         // Fast path: asset already exists by (org, type, identifier)
         java.util.Optional<Asset> existing =
             assetRepo.findByOrganizationIdAndTypeAndIdentifier(organizationId, pa.getType(), pa.getIdentifier());
+        // A web application is also recognized by any of its Base URLs, so changing which URL
+        // is primary (its identifier) never forks it on the next scan.
+        if (existing.isEmpty() && AssetType.WEB_APPLICATION.equals(pa.getType())) {
+            existing = assetRepo.findWebApplicationByBaseUrl(organizationId, pa.getIdentifier());
+        }
         if (existing.isPresent()) {
             // For web_endpoint assets, merge observed query params + request-variable
             // fields (status codes, content types, etc.) into existing metadata
             if (AssetType.WEB_ENDPOINT.equals(pa.getType())) {
-                Map<String, Object> newParams = getParams(pa.getMetadata());
+                Map<String, Object> meta = stripExternalIdKeys(pa.getMetadata());
+                Map<String, Object> newParams = getParams(meta);
                 if (!newParams.isEmpty()) mergeEndpointParams(existing.get(), newParams);
-                mergeEndpointArrayFields(existing.get(), pa.getMetadata());
+                mergeEndpointArrayFields(existing.get(), meta);
             }
             return existing.get().getId();
         }
@@ -163,13 +178,10 @@ public class AssetImportHelper {
         // tool's own host id is stable across an active-IP change, which is exactly the case
         // that made the IP-based lookup create a duplicate host (see class javadoc on the
         // EXTERNAL_ID_* keys).
-        if (extTool != null && extValue != null) {
-            java.util.Optional<Asset> byExternalId = externalIdRepo.findByToolAndExternalId(extTool, extValue)
-                .flatMap(mapping -> assetRepo.findById(mapping.getAssetId()));
-            if (byExternalId.isPresent()) {
-                if (!hints.isEmpty()) appendHostnames(byExternalId.get(), hints);
-                return byExternalId.get().getId();
-            }
+        java.util.Optional<Asset> byExternalId = findByExternalId(organizationId, AssetType.HOST, extTool, extValue);
+        if (byExternalId.isPresent()) {
+            if (!hints.isEmpty()) appendHostnames(byExternalId.get(), hints);
+            return byExternalId.get().getId();
         }
 
         if (ip != null) {
@@ -185,7 +197,7 @@ public class AssetImportHelper {
                     .flatMap(assetRepo::findById);
                 if (existingHost.isPresent()) {
                     if (!hints.isEmpty()) appendHostnames(existingHost.get(), hints);
-                    return recordExternalIdIfAbsent(existingHost.get().getId(), extTool, extValue);
+                    return recordExternalIdIfAbsent(organizationId, existingHost.get().getId(), extTool, extValue);
                 }
             }
         }
@@ -196,7 +208,7 @@ public class AssetImportHelper {
             assetRepo.findByOrganizationIdAndTypeAndIdentifier(organizationId, AssetType.HOST, pa.getIdentifier());
         if (existing.isPresent()) {
             if (!hints.isEmpty()) appendHostnames(existing.get(), hints);
-            return recordExternalIdIfAbsent(existing.get().getId(), extTool, extValue);
+            return recordExternalIdIfAbsent(organizationId, existing.get().getId(), extTool, extValue);
         }
 
         // No existing host found — create one, seeding hostnames/Name via the fallback rule.
@@ -216,24 +228,34 @@ public class AssetImportHelper {
         a.setUpdatedAt(now);
         Asset saved = assetRepo.save(a);
         recordChange("asset", saved.getId(), "created", null);
-        return recordExternalIdIfAbsent(saved.getId(), extTool, extValue);
+        return recordExternalIdIfAbsent(organizationId, saved.getId(), extTool, extValue);
     }
 
-    /** Upserts the {@code (tool, externalId) -> hostId} mapping used by the external-id fast
-     *  path above, when both were provided on the ParsedAsset and no mapping exists yet.
-     *  No-op (just returns hostId) when either is null, or a mapping already exists — this is
+    /** The organization's asset of {@code type} mapped to this tool id, if any. A mapping to an
+     *  asset of another type (a tool reusing an id space) is ignored rather than trusted. */
+    private java.util.Optional<Asset> findByExternalId(Long organizationId, String type, String tool, String externalId) {
+        if (tool == null || externalId == null) return java.util.Optional.empty();
+        return externalIdRepo.findByOrganizationIdAndToolAndExternalId(organizationId, tool, externalId)
+            .flatMap(mapping -> assetRepo.findById(mapping.getAssetId()))
+            .filter(a -> organizationId.equals(a.getOrganizationId()) && type.equals(a.getType()));
+    }
+
+    /** Upserts the {@code (org, tool, externalId) -> assetId} mapping used by the external-id
+     *  fast path above, when both were provided on the ParsedAsset and no mapping exists yet.
+     *  No-op (just returns assetId) when either is null, or a mapping already exists — this is
      *  only reached on branches that didn't already resolve via that mapping, so it never
-     *  overwrites an existing row pointing at a stale/merged asset. */
-    private Long recordExternalIdIfAbsent(Long hostId, String tool, String externalId) {
-        if (tool == null || externalId == null) return hostId;
-        if (externalIdRepo.findByToolAndExternalId(tool, externalId).isPresent()) return hostId;
+     *  overwrites an existing row pointing at another asset. */
+    private Long recordExternalIdIfAbsent(Long organizationId, Long assetId, String tool, String externalId) {
+        if (tool == null || externalId == null) return assetId;
+        if (externalIdRepo.findByOrganizationIdAndToolAndExternalId(organizationId, tool, externalId).isPresent()) return assetId;
         AssetExternalId mapping = new AssetExternalId();
-        mapping.setAssetId(hostId);
+        mapping.setAssetId(assetId);
+        mapping.setOrganizationId(organizationId);
         mapping.setTool(tool);
         mapping.setExternalId(externalId);
         mapping.setCreatedAt(OffsetDateTime.now());
         externalIdRepo.save(mapping);
-        return hostId;
+        return assetId;
     }
 
     /** Appends any new (case-insensitive) hostnames to an existing host and recomputes its Name. */
@@ -277,13 +299,18 @@ public class AssetImportHelper {
     private String externalIdTool(Map<String, Object> meta) {
         if (meta == null) return null;
         Object v = meta.get(EXTERNAL_ID_TOOL_KEY);
-        return v != null ? String.valueOf(v) : null;
+        if (v == null) return null;
+        String s = String.valueOf(v).trim();
+        return s.isEmpty() || s.length() > 80 ? null : s;
     }
 
     private String externalIdValue(Map<String, Object> meta) {
         if (meta == null) return null;
         Object v = meta.get(EXTERNAL_ID_VALUE_KEY);
-        return v != null ? String.valueOf(v) : null;
+        if (v == null) return null;
+        String s = String.valueOf(v).trim();
+        // Column is varchar(255); an id that doesn't fit is ignored rather than failing the import.
+        return s.isEmpty() || s.length() > 255 ? null : s;
     }
 
     private Map<String, Object> stripExternalIdKeys(Map<String, Object> meta) {
@@ -301,7 +328,7 @@ public class AssetImportHelper {
         a.setType(pa.getType());
         a.setCode(assetService.generateCode(organizationId, pa.getType()));
         try {
-            a.setMetadata(objectMapper.writeValueAsString(pa.getMetadata()));
+            a.setMetadata(objectMapper.writeValueAsString(stripExternalIdKeys(pa.getMetadata())));
         } catch (Exception e) {
             a.setMetadata("{}");
         }
@@ -329,20 +356,18 @@ public class AssetImportHelper {
      */
     @Transactional(propagation = Propagation.REQUIRED)
     public void linkIfAbsent(Long fromId, Long toId, String linkType) {
+        // Primary-key lookup first: on a re-import the link almost always exists already, and an
+        // existing row was validated when it was created — no need to load either asset.
+        if (relRepo.existsById(new com.martecyber.ares.assets.AssetRelationshipId(fromId, toId, linkType))) return;
         Asset from = assetRepo.findById(fromId)
             .orElseThrow(() -> new IllegalArgumentException("Asset not found: " + fromId));
         Asset to = assetRepo.findById(toId)
             .orElseThrow(() -> new IllegalArgumentException("Asset not found: " + toId));
         AssetLinkType.validate(from.getType(), linkType, to.getType());
-
-        boolean exists = relRepo.findByFromAssetId(fromId).stream()
-            .anyMatch(r -> r.getToAssetId().equals(toId) && linkType.equals(r.getType()));
-        if (exists) return;
         AssetRelationship r = new AssetRelationship();
         r.setFromAssetId(fromId);
         r.setToAssetId(toId);
         r.setType(linkType);
-        r.setDirectional(true);
         r.setCreatedAt(OffsetDateTime.now());
         relRepo.save(r);
     }

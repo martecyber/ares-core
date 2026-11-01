@@ -56,6 +56,7 @@ public class AssetAqlRegistry implements EntityAqlRegistry<Asset> {
         // unimplemented — see the removed detections.* relation below) asset→detections join.
         register(column("id", AqlFieldType.NUMBER, ID_OPS, r -> r.get("id")));
         register(identifier);
+        register(column("displayName", AqlFieldType.STRING, STRING_OPS, r -> r.get("displayName")));
         register(code);
         register(new ColumnAqlField<>("type", AqlFieldType.STRING, AqlFieldKind.PHYSICAL_COLUMN, STRING_OPS,
             r -> r.get("type"), AssetType.ALL.stream().sorted().toList()));

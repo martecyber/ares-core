@@ -16,12 +16,16 @@ public class ProjectRuleController {
 
     private final ProjectRuleService service;
 
-    public ProjectRuleController(ProjectRuleService service) {
+    private final com.martecyber.ares.users.OrgScopeService orgScope;
+
+    public ProjectRuleController(ProjectRuleService service, com.martecyber.ares.users.OrgScopeService orgScope) {
+        this.orgScope = orgScope;
         this.service = service;
     }
 
     @GetMapping
     public List<ProjectRuleDto> list(@PathVariable Long projectId) {
+        orgScope.assertCurrentProjectAccess(projectId);
         return service.list(projectId);
     }
 
@@ -29,6 +33,7 @@ public class ProjectRuleController {
     @ResponseStatus(HttpStatus.CREATED)
     public ProjectRuleDto create(@PathVariable Long projectId,
                                   @RequestBody CreateProjectRuleRequest req) {
+        orgScope.assertCurrentProjectAccess(projectId);
         return service.create(projectId, req);
     }
 
@@ -36,12 +41,14 @@ public class ProjectRuleController {
     public ProjectRuleDto update(@PathVariable Long projectId,
                                   @PathVariable Long id,
                                   @RequestBody UpdateProjectRuleRequest req) {
+        orgScope.assertCurrentProjectAccess(projectId);
         return service.update(projectId, id, req);
     }
 
     @DeleteMapping("/{id}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void delete(@PathVariable Long projectId, @PathVariable Long id) {
+        orgScope.assertCurrentProjectAccess(projectId);
         service.delete(projectId, id);
     }
 }

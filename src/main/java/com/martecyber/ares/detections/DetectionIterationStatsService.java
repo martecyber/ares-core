@@ -2,6 +2,7 @@ package com.martecyber.ares.detections;
 
 import com.martecyber.ares.projects.MonitorIterationHelper;
 import com.martecyber.ares.projects.Project;
+import com.martecyber.ares.projects.ProjectIterationRepository;
 import com.martecyber.ares.projects.ProjectRepository;
 import org.springframework.stereotype.Service;
 
@@ -31,13 +32,16 @@ public class DetectionIterationStatsService {
     private final DetectionIterationStatRepository statRepo;
     private final DetectionRepository detectionRepo;
     private final ProjectRepository projectRepo;
+    private final ProjectIterationRepository iterationRepo;
 
     public DetectionIterationStatsService(DetectionIterationStatRepository statRepo,
                                            DetectionRepository detectionRepo,
-                                           ProjectRepository projectRepo) {
+                                           ProjectRepository projectRepo,
+                                           ProjectIterationRepository iterationRepo) {
         this.statRepo = statRepo;
         this.detectionRepo = detectionRepo;
         this.projectRepo = projectRepo;
+        this.iterationRepo = iterationRepo;
     }
 
     /** Maps a detection status to the monitoring area it represents, or null if the status
@@ -59,8 +63,9 @@ public class DetectionIterationStatsService {
         Project project = projectRepo.findById(detection.getProjectId()).orElse(null);
         if (project == null || project.getIterationCadence() == null) return;
 
-        String label = MonitorIterationHelper.computeLabel(project.getIterationCadence(), changedAt.toLocalDate());
+        String label = MonitorIterationHelper.resolveIterationLabel(project, changedAt.toLocalDate(), iterationRepo);
         if (label == null) return;
+        MonitorIterationHelper.ensureIterationRow(project, label, iterationRepo);
 
         if (statRepo.existsByProjectIdAndDetectionIdAndIterationLabelAndArea(
                 project.getId(), detectionId, label, area)) {

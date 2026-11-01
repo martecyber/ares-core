@@ -3,10 +3,10 @@ package com.martecyber.ares.assets;
 import jakarta.persistence.*;
 import java.time.OffsetDateTime;
 
-/** Maps a source tool's own stable host identifier (Tenable asset.id, Greenbone/GVM asset_id, …)
- *  to the Ares HOST asset it resolves to, so re-imports find the same host even when the
- *  IP/interface-based resolution in {@code AssetImportHelper} would otherwise miss (active IP
- *  changed between syncs) and create a duplicate. See V172 migration. */
+/** Maps a source tool's own stable asset identifier (Tenable asset.id, Greenbone/GVM asset_id,
+ *  CrowdStrike device_id, …) to the Ares asset it resolves to — any type — so re-imports find the
+ *  same asset even when its natural key drifted (a host's active IP changed between syncs) instead
+ *  of creating a duplicate. Unique per organization (V213). See V172 migration. */
 @Entity
 @Table(name = "asset_external_id", schema = "ares")
 public class AssetExternalId {
@@ -17,6 +17,9 @@ public class AssetExternalId {
 
     @Column(name = "asset_id", nullable = false)
     private Long assetId;
+
+    @Column(name = "organization_id", nullable = false)
+    private Long organizationId;
 
     @Column(nullable = false, length = 80)
     private String tool;
@@ -30,6 +33,8 @@ public class AssetExternalId {
     public Long getId() { return id; }
     public Long getAssetId() { return assetId; }
     public void setAssetId(Long assetId) { this.assetId = assetId; }
+    public Long getOrganizationId() { return organizationId; }
+    public void setOrganizationId(Long organizationId) { this.organizationId = organizationId; }
     public String getTool() { return tool; }
     public void setTool(String tool) { this.tool = tool; }
     public String getExternalId() { return externalId; }

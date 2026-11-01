@@ -39,6 +39,7 @@ public class ProjectService {
     private final AssetScopeClassifier classifier;
     private final ScopeClassifyScheduler scheduler;
     private final OrgScopeService orgScope;
+    private final ProjectIterationRepository iterationRepo;
     private final WorkflowEventDispatcher workflowEventDispatcher;
 
     public ProjectService(
@@ -52,6 +53,7 @@ public class ProjectService {
         AssetScopeClassifier classifier,
         ScopeClassifyScheduler scheduler,
         OrgScopeService orgScope,
+        ProjectIterationRepository iterationRepo,
         WorkflowEventDispatcher workflowEventDispatcher
     ) {
         this.repo = repo;
@@ -64,6 +66,7 @@ public class ProjectService {
         this.classifier = classifier;
         this.scheduler = scheduler;
         this.orgScope = orgScope;
+        this.iterationRepo = iterationRepo;
         this.workflowEventDispatcher = workflowEventDispatcher;
     }
 
@@ -238,16 +241,95 @@ public class ProjectService {
     }
 
     /** Manually approves the jump to the calendar's current iteration for a MONITOR project
-     *  whose iterations don't auto-advance. Harmless/idempotent if already in sync. */
+     *  whose iterations don't auto-advance. Fixes the actual_end of the outgoing iteration
+     *  and the actual_start of the incoming one to today. */
     @Transactional
     public ProjectDto approveIteration(Long id) {
         Project e = repo.findById(id).orElseThrow(() -> NotFoundException.of("project", id));
         if (e.getIterationCadence() == null)
             throw new IllegalArgumentException("Project has no iteration cadence configured");
-        e.setActiveIterationLabel(MonitorIterationHelper.computeLabel(e.getIterationCadence(), java.time.LocalDate.now()));
-        e.setUpdatedAt(OffsetDateTime.now());
+
+        LocalDate today = LocalDate.now();
+        OffsetDateTime now = OffsetDateTime.now();
+        String oldLabel = e.getActiveIterationLabel();
+        String newLabel = MonitorIterationHelper.computeLabel(e.getIterationCadence(), today);
+
+        if (oldLabel != null) {
+            ProjectIteration outgoing = MonitorIterationHelper.ensureIterationRow(e, oldLabel, iterationRepo);
+            if (outgoing != null) {
+                outgoing.setActualEnd(today);
+                outgoing.setApprovedAt(now);
+                iterationRepo.save(outgoing);
+            }
+        }
+
+        ProjectIteration incoming = MonitorIterationHelper.ensureIterationRow(e, newLabel, iterationRepo);
+        if (incoming != null) {
+            incoming.setActualStart(today);
+            iterationRepo.save(incoming);
+        }
+
+        e.setActiveIterationLabel(newLabel);
+        e.setUpdatedAt(now);
         repo.save(e);
         return get(id, SecurityContextHolder.getContext().getAuthentication());
+    }
+
+    public List<ProjectIterationDto> listIterations(Long projectId) {
+        return iterationRepo.findByProjectIdOrderByPlannedStartAsc(projectId).stream()
+            .map(ProjectService::toIterationDto).toList();
+    }
+
+    @Transactional
+    public ProjectIterationDto updateIteration(Long projectId, String label, LocalDate actualStart, LocalDate actualEnd) {
+        ProjectIteration iter = iterationRepo.findByProjectIdAndLabel(projectId, label)
+            .orElseThrow(() -> NotFoundException.of("iteration", label));
+
+        if (actualStart != null) iter.setActualStart(actualStart);
+        if (actualEnd != null) {
+            if (iter.getActualStart() != null && actualEnd.isBefore(iter.getActualStart()))
+                throw new IllegalArgumentException("actual_end cannot be before actual_start");
+            iter.setActualEnd(actualEnd);
+            // Cascade: adjust the next iteration's actual_start to maintain contiguity
+            var allIters = iterationRepo.findByProjectIdOrderByPlannedStartAsc(projectId);
+            for (int i = 0; i < allIters.size() - 1; i++) {
+                if (allIters.get(i).getLabel().equals(label)) {
+                    ProjectIteration next = allIters.get(i + 1);
+                    next.setActualStart(actualEnd);
+                    iterationRepo.save(next);
+                    break;
+                }
+            }
+        }
+        iterationRepo.save(iter);
+        return toIterationDto(iter);
+    }
+
+    public record ProjectIterationDto(
+        String label, String plannedStart, String plannedEnd,
+        String actualStart, String actualEnd, String effectiveEnd,
+        String approvedAt, String status
+    ) {}
+
+    private static ProjectIterationDto toIterationDto(ProjectIteration it) {
+        String status;
+        if (it.getActualEnd() != null) status = "closed";
+        else if (it.getActualStart() != null && !it.getActualStart().isAfter(LocalDate.now())) status = "active";
+        else status = "future";
+
+        boolean extended = it.getActualEnd() == null && it.getPlannedEnd().isBefore(LocalDate.now());
+        if (extended) status = "extended";
+
+        return new ProjectIterationDto(
+            it.getLabel(),
+            it.getPlannedStart().toString(),
+            it.getPlannedEnd().toString(),
+            it.getActualStart() != null ? it.getActualStart().toString() : null,
+            it.getActualEnd() != null ? it.getActualEnd().toString() : null,
+            it.effectiveEnd().toString(),
+            it.getApprovedAt() != null ? it.getApprovedAt().toString() : null,
+            status
+        );
     }
 
     @Transactional

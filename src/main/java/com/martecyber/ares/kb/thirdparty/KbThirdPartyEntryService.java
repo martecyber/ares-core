@@ -4,6 +4,7 @@ import com.martecyber.ares.common.NotFoundException;
 import com.martecyber.ares.jobs.JobService;
 import com.martecyber.ares.jobs.dto.CreateJobRequest;
 import com.martecyber.ares.jobs.dto.JobDto;
+import com.martecyber.ares.projects.AssetScopeClassifier;
 import com.martecyber.ares.projects.ScopeClassifyScheduler;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -17,12 +18,14 @@ public class KbThirdPartyEntryService {
     private final KbThirdPartyEntryRepository repo;
     private final ScopeClassifyScheduler scheduler;
     private final JobService jobService;
+    private final AssetScopeClassifier classifier;
 
     public KbThirdPartyEntryService(KbThirdPartyEntryRepository repo, ScopeClassifyScheduler scheduler,
-                                     JobService jobService) {
+                                     JobService jobService, AssetScopeClassifier classifier) {
         this.repo = repo;
         this.scheduler = scheduler;
         this.jobService = jobService;
+        this.classifier = classifier;
     }
 
     public Page<KbThirdPartyEntry> list(String category, String kind, Boolean enabled, String q, Pageable pageable) {
@@ -35,6 +38,7 @@ public class KbThirdPartyEntryService {
 
     public KbThirdPartyEntry create(KbThirdPartyEntry entry) {
         KbThirdPartyEntry saved = repo.save(entry);
+        classifier.invalidateThirdPartyCache();
         // A brand-new pattern is a platform-wide change — reclassify every project's
         // already-indeterminate assets against it, not just whatever project someone
         // happens to touch next.
@@ -50,6 +54,7 @@ public class KbThirdPartyEntryService {
         entry.setNotes(patch.getNotes());
         entry.setEnabled(patch.isEnabled());
         KbThirdPartyEntry saved = repo.save(entry);
+        classifier.invalidateThirdPartyCache();
         // kind/value may have changed to newly match assets that didn't match before.
         if (saved.isEnabled()) scheduler.scheduleThirdPartyReclassify();
         return saved;
@@ -59,6 +64,7 @@ public class KbThirdPartyEntryService {
         KbThirdPartyEntry entry = repo.findById(id).orElseThrow(() -> NotFoundException.of("kb_third_party_entry", id));
         entry.setEnabled(!entry.isEnabled());
         repo.save(entry);
+        classifier.invalidateThirdPartyCache();
         // Only re-enabling matters here — disabling doesn't create new matches, and
         // existing THIRD_PARTY assets are never automatically reverted (see classify() step 5).
         if (entry.isEnabled()) scheduler.scheduleThirdPartyReclassify();
@@ -67,6 +73,7 @@ public class KbThirdPartyEntryService {
     public void delete(Long id) {
         if (!repo.existsById(id)) throw NotFoundException.of("kb_third_party_entry", id);
         repo.deleteById(id);
+        classifier.invalidateThirdPartyCache();
     }
 
     /** Manual "force reclassify" trigger — creates a trackable Job and runs it immediately. */

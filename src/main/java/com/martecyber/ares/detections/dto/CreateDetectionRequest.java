@@ -10,5 +10,7 @@ public record CreateDetectionRequest(
     @NotBlank String status,
     @NotBlank String title,
     String description,
-    String rawData
+    String rawData,
+    String sourceType,
+    String sourceTemplateId
 ) {}

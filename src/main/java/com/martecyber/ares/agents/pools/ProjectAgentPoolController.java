@@ -19,7 +19,10 @@ public class ProjectAgentPoolController {
     private final AgentPoolService poolService;
     private final ProjectRepository projectRepo;
 
-    public ProjectAgentPoolController(AgentPoolService poolService, ProjectRepository projectRepo) {
+    private final com.martecyber.ares.users.OrgScopeService orgScope;
+
+    public ProjectAgentPoolController(AgentPoolService poolService, ProjectRepository projectRepo, com.martecyber.ares.users.OrgScopeService orgScope) {
+        this.orgScope = orgScope;
         this.poolService = poolService;
         this.projectRepo = projectRepo;
     }
@@ -27,6 +30,7 @@ public class ProjectAgentPoolController {
     @GetMapping
     @PreAuthorize("hasAnyRole('MSSP_ADMIN','MSSP_OPERATOR')")
     public List<PoolDto> list(@PathVariable Long engId) {
+        orgScope.assertCurrentProjectAccess(engId);
         Long orgId = projectRepo.findById(engId)
             .map(p -> p.getOrganizationId())
             .orElseThrow(() -> NotFoundException.of("project", engId));

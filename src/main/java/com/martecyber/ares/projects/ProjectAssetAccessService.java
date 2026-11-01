@@ -62,9 +62,14 @@ public class ProjectAssetAccessService {
 
     @Transactional
     public void add(Long projectId, Long assetId) {
-        projects.findById(projectId)
+        var project = projects.findById(projectId)
             .orElseThrow(() -> NotFoundException.of("project", projectId));
-        assets.findById(assetId).orElseThrow(() -> NotFoundException.of("asset", assetId));
+        var asset = assets.findById(assetId).orElseThrow(() -> NotFoundException.of("asset", assetId));
+        // A project only ever holds its own organization's assets — linking a foreign one would
+        // expose it (and its relationships) to everyone with access to this project.
+        if (!project.getOrganizationId().equals(asset.getOrganizationId())) {
+            throw new IllegalArgumentException("Asset " + assetId + " belongs to a different organization than project " + projectId);
+        }
 
         if (!repo.existsByProjectIdAndAssetId(projectId, assetId)) {
             ProjectAssetAccess e = new ProjectAssetAccess();

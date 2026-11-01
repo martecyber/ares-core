@@ -51,7 +51,6 @@ class AssetRelationshipServiceTest {
         r.setFromAssetId(from);
         r.setToAssetId(to);
         r.setType(type);
-        r.setDirectional(true);
         return r;
     }
 
@@ -108,6 +107,18 @@ class AssetRelationshipServiceTest {
 
         var result = service.findReachable(9L, List.of(1L));
         assertEquals(1, result.size());
+    }
+
+    @Test
+    void findReachableNeverEchoesBackAssetsFromAnotherOrg() {
+        // fromIds is caller-supplied: asset 50 belongs to org 7, not the requested org 9.
+        when(repo.findByOrganizationId(9L)).thenReturn(List.of());
+        when(assetRepo.findAllById(Set.of(1L, 50L))).thenReturn(List.of(
+            asset(1, 9L, AssetType.HOST, "H1"), asset(50, 7L, AssetType.HOST, "FOREIGN")));
+
+        var result = service.findReachable(9L, List.of(1L, 50L));
+
+        assertEquals(List.of(1L), result.stream().map(Asset::getId).toList());
     }
 
     @Test
@@ -230,13 +241,12 @@ class AssetRelationshipServiceTest {
     }
 
     @Test
-    void createSavesAValidDirectionalRelationship() {
+    void createSavesAValidRelationship() {
         when(assetRepo.findById(1L)).thenReturn(Optional.of(asset(1, 9L, AssetType.HOST, "H1")));
         when(assetRepo.findById(2L)).thenReturn(Optional.of(asset(2, 9L, AssetType.INTERFACE, "I1")));
 
         var dto = service.create(1L, new CreateAssetRelationshipRequest(2L, AssetLinkType.HOST_INTERFACE));
 
-        assertTrue(dto.directional());
         assertEquals(AssetLinkType.HOST_INTERFACE, dto.type());
     }
 
@@ -248,32 +258,81 @@ class AssetRelationshipServiceTest {
             () -> service.create(1L, new CreateAssetRelationshipRequest(2L, AssetLinkType.HOST_INTERFACE)));
     }
 
+    @Test
+    void createRejectsLinkingAssetsFromDifferentOrganizations() {
+        when(assetRepo.findById(1L)).thenReturn(Optional.of(asset(1, 9L, AssetType.HOST, "H1")));
+        when(assetRepo.findById(2L)).thenReturn(Optional.of(asset(2, 10L, AssetType.INTERFACE, "I1")));
+        assertThrows(IllegalArgumentException.class,
+            () -> service.create(1L, new CreateAssetRelationshipRequest(2L, AssetLinkType.HOST_INTERFACE)));
+        verify(repo, never()).save(any());
+    }
+
+    @Test
+    void createRejectsSelfLinks() {
+        when(assetRepo.findById(1L)).thenReturn(Optional.of(asset(1, 9L, AssetType.WEB_ENDPOINT, "E1")));
+        assertThrows(IllegalArgumentException.class,
+            () -> service.create(1L, new CreateAssetRelationshipRequest(1L, AssetLinkType.ENDPOINT_CHILD)));
+        verify(repo, never()).save(any());
+    }
+
+    @Test
+    void createRejectsAutoComputedLinkTypes() {
+        when(assetRepo.findById(1L)).thenReturn(Optional.of(asset(1, 9L, AssetType.DOMAIN, "D1")));
+        when(assetRepo.findById(2L)).thenReturn(Optional.of(asset(2, 9L, AssetType.DOMAIN, "D2")));
+        assertThrows(IllegalArgumentException.class,
+            () -> service.create(1L, new CreateAssetRelationshipRequest(2L, AssetLinkType.DOMAIN_SUBDOMAIN)));
+        verify(repo, never()).save(any());
+    }
+
+    @Test
+    void createReturnsTheExistingRelationshipInsteadOfOverwritingIt() {
+        when(assetRepo.findById(1L)).thenReturn(Optional.of(asset(1, 9L, AssetType.PERSON, "P1")));
+        when(assetRepo.findById(2L)).thenReturn(Optional.of(asset(2, 9L, AssetType.EMAIL, "E1")));
+        when(repo.findById(new AssetRelationshipId(1L, 2L, AssetLinkType.PERSON_EMAIL)))
+            .thenReturn(Optional.of(rel(1, 2, AssetLinkType.PERSON_EMAIL)));
+
+        var dto = service.create(1L, new CreateAssetRelationshipRequest(2L, AssetLinkType.PERSON_EMAIL));
+
+        assertEquals(AssetLinkType.PERSON_EMAIL, dto.type());
+        verify(repo, never()).save(any());
+    }
+
+    @Test
+    void linkTypesExposeTheMatrixAndFlagAutoComputedLinks() {
+        var rows = service.linkTypes();
+        var subdomain = rows.stream().filter(r -> r.linkType().equals(AssetLinkType.DOMAIN_SUBDOMAIN)).findFirst().orElseThrow();
+        var personEmail = rows.stream().filter(r -> r.linkType().equals(AssetLinkType.PERSON_EMAIL)).findFirst().orElseThrow();
+
+        assertFalse(subdomain.manual());
+        assertTrue(personEmail.manual());
+        assertEquals(AssetType.PERSON, personEmail.fromType());
+        assertEquals(List.of(AssetType.EMAIL), personEmail.toTypes());
+    }
+
     // ── linkIfAbsent ─────────────────────────────────────────────────
 
     @Test
     void linkIfAbsentDoesNotDuplicateAnExistingIdenticalLink() {
-        when(assetRepo.findById(1L)).thenReturn(Optional.of(asset(1, 9L, AssetType.HOST, "H1")));
-        when(assetRepo.findById(2L)).thenReturn(Optional.of(asset(2, 9L, AssetType.INTERFACE, "I1")));
-        when(repo.findByFromAssetId(1L)).thenReturn(List.of(rel(1, 2, AssetLinkType.HOST_INTERFACE)));
+        when(repo.existsById(new AssetRelationshipId(1L, 2L, AssetLinkType.HOST_INTERFACE))).thenReturn(true);
 
         service.linkIfAbsent(1L, 2L, AssetLinkType.HOST_INTERFACE);
 
         verify(repo, never()).save(any());
+        verify(repo, never()).findByFromAssetId(any());
+        verify(assetRepo, never()).findById(any()); // existing link: a single primary-key lookup
     }
 
     @Test
     void linkIfAbsentCreatesTheLinkWhenNotAlreadyPresent() {
         when(assetRepo.findById(1L)).thenReturn(Optional.of(asset(1, 9L, AssetType.HOST, "H1")));
         when(assetRepo.findById(2L)).thenReturn(Optional.of(asset(2, 9L, AssetType.INTERFACE, "I1")));
-        when(repo.findByFromAssetId(1L)).thenReturn(List.of());
-
         service.linkIfAbsent(1L, 2L, AssetLinkType.HOST_INTERFACE);
 
         verify(repo).save(argThat(r -> r.getFromAssetId().equals(1L) && r.getToAssetId().equals(2L)));
     }
 
     @Test
-    void linkIfAbsentValidatesTheTypeCombinationBeforeCheckingExistence() {
+    void linkIfAbsentValidatesTheTypeCombinationOfANewLink() {
         when(assetRepo.findById(1L)).thenReturn(Optional.of(asset(1, 9L, AssetType.HOST, "H1")));
         when(assetRepo.findById(2L)).thenReturn(Optional.of(asset(2, 9L, AssetType.HOST, "H2")));
         assertThrows(IllegalArgumentException.class, () -> service.linkIfAbsent(1L, 2L, AssetLinkType.HOST_INTERFACE));
@@ -291,5 +350,33 @@ class AssetRelationshipServiceTest {
     void hideForProjectDelegatesToTheHiddenRepository() {
         service.hideForProject(7L, 1L, 2L, "a");
         verify(hiddenRepo).hideIfAbsent(7L, 1L, 2L, "a");
+    }
+
+    // ── Visibility: a relationship is shown only when the caller can see both ends ──
+
+    @Test
+    void listAllForAssetDropsRelationshipsWhoseOtherEndIsNotVisible() {
+        when(assetRepo.findById(1L)).thenReturn(Optional.of(asset(1, 10L, "domain", "D1")));
+        when(repo.findByFromAssetId(1L)).thenReturn(List.of(rel(1, 2, "domain_a"), rel(1, 3, "domain_a")));
+        when(repo.findByToAssetId(1L)).thenReturn(List.of());
+        when(assetRepo.findAllById(any())).thenReturn(List.of(asset(2, 10L, "ip", "IP2"), asset(3, 20L, "ip", "IP3")));
+
+        assertEquals(List.of(2L), service.listAllForAsset(1L, Set.of(10L)).stream()
+            .map(AssetRelationshipDetailDto::relatedAssetId).toList());
+        assertEquals(2, service.listAllForAsset(1L, null).size(), "null = unrestricted");
+    }
+
+    @Test
+    void organizationAndProjectListingsKeepOnlyRelationshipsBetweenTwoVisibleAssets() {
+        when(repo.findByOrganizationId(10L)).thenReturn(List.of(rel(1, 2, "a"), rel(1, 3, "a")));
+        when(repo.findByProjectId(7L)).thenReturn(List.of(rel(1, 2, "a"), rel(3, 2, "a")));
+        when(assetRepo.findIdsInOrganizations(any(), eq(Set.of(10L)))).thenReturn(List.of(1L, 2L));
+
+        assertEquals(List.of(2L), service.listByOrganization(10L, Set.of(10L)).stream()
+            .map(r -> r.toAssetId()).toList());
+        assertEquals(List.of(1L), service.listByProject(7L, Set.of(10L)).stream()
+            .map(r -> r.fromAssetId()).toList());
+        assertTrue(service.listByOrganization(10L, Set.of()).isEmpty(), "no accessible org: nothing");
+        assertEquals(2, service.listByOrganization(10L, null).size(), "null = unrestricted");
     }
 }

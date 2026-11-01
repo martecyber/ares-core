@@ -68,6 +68,8 @@ public class ScopeEntryAssetDeriver {
                 .ifPresent(net -> assetService.autoLinkNetwork(organizationId, net));
         } else if (AssetType.WEB_APPLICATION.equals(m.assetType())) {
             extendWebApp(assetId, m.identifier(), m.metadata(), organizationId, entry.getProjectId());
+        } else if (AssetType.EMAIL.equals(m.assetType())) {
+            extendEmail(assetId, m.identifier(), organizationId, entry.getProjectId());
         }
 
         accessSvc.add(entry.getProjectId(), assetId);
@@ -100,6 +102,20 @@ public class ScopeEntryAssetDeriver {
             importHelper.linkIfAbsent(webappId, domainId, AssetLinkType.WEBAPP_DOMAIN);
             accessSvc.add(projectId, domainId);
         }
+    }
+
+    /**
+     * After creating an EMAIL asset, also creates a DOMAIN for the email's domain part
+     * and links them via DOMAIN_EMAIL.
+     */
+    private void extendEmail(Long emailId, String emailAddress, Long organizationId, Long projectId) {
+        int at = emailAddress.lastIndexOf('@');
+        if (at < 1 || at >= emailAddress.length() - 1) return;
+        String domainPart = emailAddress.substring(at + 1);
+        Long domainId = importHelper.resolveOrCreate(organizationId,
+            new ParsedAsset(domainPart, AssetType.DOMAIN, Map.of()));
+        importHelper.linkIfAbsent(domainId, emailId, AssetLinkType.DOMAIN_EMAIL);
+        accessSvc.add(projectId, domainId);
     }
 
     private static String extractHost(String url) {
@@ -149,7 +165,10 @@ public class ScopeEntryAssetDeriver {
             case "ios_app"      -> Optional.of(new DeriveMapping(AssetType.IOS_APP, value, Map.of()));
             case "windows_app"  -> Optional.of(new DeriveMapping(AssetType.WINDOWS_APP, value, Map.of()));
             case "hardware"     -> Optional.of(new DeriveMapping(AssetType.HARDWARE, value, Map.of()));
-            default             -> Optional.empty(); // ip_wildcard, other — not derivable
+            case "email"        -> Optional.of(new DeriveMapping(AssetType.EMAIL, value, Map.of()));
+            case "system"       -> Optional.of(new DeriveMapping(AssetType.SYSTEM, value, Map.of()));
+            case "directory"    -> Optional.of(new DeriveMapping(AssetType.DIRECTORY, value, Map.of()));
+            default             -> Optional.empty(); // ip_wildcard, email_domain, other — not derivable
         };
     }
 

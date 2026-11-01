@@ -149,14 +149,13 @@ public class AssetScopeClassifier {
         // Step 1: direct matches — collect both in/out signals per asset
         Map<Long, Set<String>> directSignals = new HashMap<>();
         for (Long id : assetIds) directSignals.put(id, new HashSet<>());
+        ScopeMatcher inMatcher  = compileScope(entries, true);
+        ScopeMatcher outMatcher = compileScope(entries, false);
         for (ProjectAssetAccess access : accesses) {
             Asset asset = assetsById.get(access.getAssetId());
             if (asset == null) continue;
-            for (ProjectScopeEntry entry : entries) {
-                if (matches(asset, entry)) {
-                    directSignals.get(asset.getId()).add(entry.isInScope() ? IN_SCOPE : OUT_OF_SCOPE);
-                }
-            }
+            if (inMatcher.matches(asset))  directSignals.get(asset.getId()).add(IN_SCOPE);
+            if (outMatcher.matches(asset)) directSignals.get(asset.getId()).add(OUT_OF_SCOPE);
         }
 
         // Resolve direct status per asset (empty=none, size-1=clear, size-2=conflict)
@@ -271,15 +270,14 @@ public class AssetScopeClassifier {
         // (in_scope/out_of_scope/indeterminate). Does not apply to overridden assets, and never
         // propagates through the relationship graph or HOST/interface aggregation — only the
         // asset's own identifier is checked directly against KB entries.
-        if (!kbEntries.isEmpty()) {
+        ScopeMatcher kbMatcher = compileThirdParty(kbEntries);
+        if (!kbMatcher.isEmpty()) {
             for (Long id : assetIds) {
                 ProjectAssetAccess access = accessByAsset.get(id);
                 if (access == null || access.isScopeOverride()) continue;
                 Asset asset = assetsById.get(id);
                 if (asset == null) continue;
-                boolean matchesKb = kbEntries.stream()
-                    .anyMatch(e -> matchesByKindAndValue(asset, e.getKind(), e.getValue()));
-                if (matchesKb) {
+                if (kbMatcher.matches(asset)) {
                     effectiveStatus.put(id, THIRD_PARTY);
                 }
             }
@@ -304,7 +302,7 @@ public class AssetScopeClassifier {
 
     /** Returns true if the asset matches any enabled KB third-party entry. */
     public boolean isThirdParty(Asset asset, List<KbThirdPartyEntry> kbEntries) {
-        return kbEntries.stream().anyMatch(e -> matchesByKindAndValue(asset, e.getKind(), e.getValue()));
+        return kbEntries.stream().anyMatch(e -> ScopeMatcher.matchesEntry(asset, e.getKind(), e.getValue()));
     }
 
     /**
@@ -320,8 +318,9 @@ public class AssetScopeClassifier {
      */
     @Transactional
     public int reclassifyThirdPartyPlatformWide() {
-        List<KbThirdPartyEntry> kbEntries = kbThirdPartyRepo.findAllByEnabledTrue();
-        if (kbEntries.isEmpty()) return 0;
+        invalidateThirdPartyCache();
+        ScopeMatcher kbMatcher = compileThirdParty(kbThirdPartyRepo.findAllByEnabledTrue());
+        if (kbMatcher.isEmpty()) return 0;
 
         List<ProjectAssetAccess> candidates = accessRepo.findByScopeOverrideFalse();
         if (candidates.isEmpty()) return 0;
@@ -335,9 +334,7 @@ public class AssetScopeClassifier {
             if (THIRD_PARTY.equals(access.getScopeStatus())) continue;
             Asset asset = assetsById.get(access.getAssetId());
             if (asset == null) continue;
-            boolean matchesKb = kbEntries.stream()
-                .anyMatch(e -> matchesByKindAndValue(asset, e.getKind(), e.getValue()));
-            if (matchesKb) {
+            if (kbMatcher.matches(asset)) {
                 matchedByProject.computeIfAbsent(access.getProjectId(), k -> new ArrayList<>())
                     .add(access.getAssetId());
             }
@@ -483,55 +480,51 @@ public class AssetScopeClassifier {
     // ── Direct matching ───────────────────────────────────────────────────────
 
     private boolean matches(Asset asset, ProjectScopeEntry entry) {
-        return matchesByKindAndValue(asset, entry.getKind(), entry.getValue());
+        return ScopeMatcher.matchesEntry(asset, entry.getKind(), entry.getValue());
     }
 
-    private boolean matchesByKindAndValue(Asset asset, String kind, String val) {
-        String id = asset.getIdentifier();
-        return switch (kind) {
-            case "domain"          -> AssetType.DOMAIN.equals(asset.getType())
-                                      && id.equalsIgnoreCase(val);
-            case "domain_wildcard" -> AssetType.DOMAIN.equals(asset.getType())
-                                      && matchesWildcardDomain(id, val);
-            case "url"             -> AssetType.WEB_APPLICATION.equals(asset.getType())
-                                      && id.equalsIgnoreCase(val);
-            case "url_wildcard"    -> AssetType.WEB_APPLICATION.equals(asset.getType())
-                                      && matchesUrlWildcard(id, val);
-            case "ip"              -> AssetType.IP.equals(asset.getType())
-                                      && extractIp(id).equals(val);
-            case "cidr"            -> (AssetType.IP.equals(asset.getType())
-                                      && AssetService.isIpInCidr(extractIp(id), val))
-                                      || (AssetType.NETWORK.equals(asset.getType())
-                                      && id.equals(val));
-            case "android_app"     -> AssetType.ANDROID_APP.equals(asset.getType())  && id.equals(val);
-            case "ios_app"         -> AssetType.IOS_APP.equals(asset.getType())      && id.equals(val);
-            case "windows_app"     -> AssetType.WINDOWS_APP.equals(asset.getType())  && id.equals(val);
-            case "hardware"        -> AssetType.HARDWARE.equals(asset.getType())      && id.equals(val);
-            case "text_contains"   -> AssetType.TEXT_DATA.equals(asset.getType())
-                                      && id.toLowerCase().contains(val.toLowerCase());
-            default                -> false;
-        };
+    private static ScopeMatcher compileScope(List<ProjectScopeEntry> entries, boolean inScope) {
+        return ScopeMatcher.compile(entries.stream()
+            .filter(e -> e.isInScope() == inScope)
+            .map(e -> new String[]{e.getKind(), e.getValue()})
+            .toList());
     }
 
-    /** *.example.com matches api.example.com and example.com itself. */
-    private boolean matchesWildcardDomain(String domain, String wildcard) {
-        String base = wildcard.startsWith("*.") ? wildcard.substring(2) : wildcard;
-        return domain.equalsIgnoreCase(base)
-            || domain.toLowerCase().endsWith("." + base.toLowerCase());
+    private static ScopeMatcher compileThirdParty(List<KbThirdPartyEntry> kbEntries) {
+        return ScopeMatcher.compile(kbEntries.stream()
+            .map(e -> new String[]{e.getKind(), e.getValue()})
+            .toList());
     }
 
-    /**
-     * url_wildcard scope (e.g. https://example.com/* or https://example.com/api/*)
-     * matches a WEB_APPLICATION whose identifier starts with the non-wildcard prefix.
-     */
-    private boolean matchesUrlWildcard(String appIdentifier, String wildcardUrl) {
-        String prefix = wildcardUrl.replaceAll("/\\*.*$", "").replaceAll("\\*$", "").stripTrailing();
-        return appIdentifier.toLowerCase().startsWith(prefix.toLowerCase());
+    // ── Third-party matcher cache (list views) ───────────────────────────────
+
+    /** Entries change rarely; this bounds staleness on other instances (local edits invalidate). */
+    private static final long THIRD_PARTY_CACHE_TTL_MS = 30_000;
+    private volatile ScopeMatcher cachedThirdParty;
+    private volatile long cachedThirdPartyAt;
+
+    /** Compiled enabled KB third-party entries, cached briefly. */
+    private ScopeMatcher thirdPartyMatcher() {
+        ScopeMatcher m = cachedThirdParty;
+        long now = System.currentTimeMillis();
+        if (m == null || now - cachedThirdPartyAt > THIRD_PARTY_CACHE_TTL_MS) {
+            m = compileThirdParty(kbThirdPartyRepo.findAllByEnabledTrue());
+            cachedThirdParty = m;
+            cachedThirdPartyAt = now;
+        }
+        return m;
     }
 
-    /** Extract bare IP from identifiers like "192.168.1.1" or "192.168.1.1:80/tcp". */
-    private String extractIp(String id) {
-        if (id == null) return "";
-        return id.contains(":") ? id.split(":")[0] : id;
+    /** Drop the cached third-party matcher; call after any KB third-party entry change. */
+    public void invalidateThirdPartyCache() {
+        cachedThirdParty = null;
+    }
+
+    /** Flags each asset's transient thirdParty field from the (cached) enabled KB entries. */
+    public void markThirdParty(Collection<Asset> assets) {
+        if (assets.isEmpty()) return;
+        ScopeMatcher m = thirdPartyMatcher();
+        if (m.isEmpty()) return;
+        for (Asset a : assets) a.setThirdParty(m.matches(a));
     }
 }

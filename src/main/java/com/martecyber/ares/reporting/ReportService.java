@@ -1,6 +1,8 @@
 package com.martecyber.ares.reporting;
 
 import com.martecyber.ares.common.NotFoundException;
+import com.martecyber.ares.projects.Project;
+import com.martecyber.ares.projects.ProjectRepository;
 import com.martecyber.ares.reporting.dto.CreateReportRequest;
 import com.martecyber.ares.reporting.dto.ReportDto;
 import com.martecyber.ares.storage.StorageService;
@@ -18,6 +20,8 @@ import org.springframework.web.multipart.MultipartFile;
 import java.io.IOException;
 import java.time.OffsetDateTime;
 import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
 
 @Service
 public class ReportService {
@@ -25,6 +29,7 @@ public class ReportService {
     private final ReportRepository repo;
     private final ReportFindingRepository findingLinkRepo;
     private final ReportFieldRepository fieldRepo;
+    private final ProjectRepository projectRepo;
     private final StorageService storage;
     private final OrgScopeService orgScope;
 
@@ -33,11 +38,13 @@ public class ReportService {
     public ReportService(ReportRepository repo,
                          ReportFindingRepository findingLinkRepo,
                          ReportFieldRepository fieldRepo,
+                         ProjectRepository projectRepo,
                          StorageService storage,
                          OrgScopeService orgScope) {
         this.repo = repo;
         this.findingLinkRepo = findingLinkRepo;
         this.fieldRepo = fieldRepo;
+        this.projectRepo = projectRepo;
         this.storage = storage;
         this.orgScope = orgScope;
     }
@@ -67,7 +74,13 @@ public class ReportService {
             orgIds = orgScope.accessibleOrgIds(auth);
             if (orgIds.isEmpty()) return new PageImpl<>(List.of(), p, 0);
         }
-        return repo.filter(organizationId, orgIds, projectId, effectiveStatus, p).map(r -> toDto(r));
+        Page<Report> result = repo.filter(organizationId, orgIds, projectId, effectiveStatus, p);
+        List<Long> projectIds = result.getContent().stream()
+            .map(Report::getProjectId).filter(id -> id != null).distinct().toList();
+        Map<Long, String> projectNames = projectIds.isEmpty() ? Map.of()
+            : projectRepo.findAllById(projectIds).stream()
+                .collect(Collectors.toMap(Project::getId, Project::getName));
+        return result.map(r -> toDto(r, projectNames.get(r.getProjectId())));
     }
 
     public ReportDto get(Long id) {
@@ -77,7 +90,9 @@ public class ReportService {
         if (isClientUser(auth) && !"published".equals(r.getStatus())) {
             throw NotFoundException.of("report", id);
         }
-        return toDto(r);
+        String projectName = r.getProjectId() != null
+            ? projectRepo.findById(r.getProjectId()).map(Project::getName).orElse(null) : null;
+        return toDto(r, projectName);
     }
 
     @Transactional
@@ -144,10 +159,16 @@ public class ReportService {
     // ── Helpers ───────────────────────────────────────────────────────────────
 
     private ReportDto toDto(Report r) {
+        String name = r.getProjectId() != null
+            ? projectRepo.findById(r.getProjectId()).map(Project::getName).orElse(null) : null;
+        return toDto(r, name);
+    }
+
+    private ReportDto toDto(Report r, String projectName) {
         int findingCount = (int) findingLinkRepo.findByReportId(r.getId()).stream()
             .map(ReportFinding::getFindingId).distinct().count();
         List<ReportField> fields = fieldRepo.findByReportId(r.getId());
-        return ReportDto.from(r, findingCount, fields);
+        return ReportDto.from(r, findingCount, fields, projectName);
     }
 
     private static Long resolveUserId() {

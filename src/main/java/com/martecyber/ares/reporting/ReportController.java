@@ -22,10 +22,14 @@ public class ReportController {
     private final ReportFieldTypeService fieldTypeSvc;
     private final FindingEmailReportService emailReportSvc;
 
+    private final com.martecyber.ares.users.OrgScopeService orgScope;
+
     public ReportController(ReportService svc, ReportTemplateService templateSvc,
                              ReportGenerationService generationSvc,
                              ReportFieldTypeService fieldTypeSvc,
-                             FindingEmailReportService emailReportSvc) {
+                             FindingEmailReportService emailReportSvc,
+                            com.martecyber.ares.users.OrgScopeService orgScope) {
+        this.orgScope = orgScope;
         this.svc = svc;
         this.templateSvc = templateSvc;
         this.generationSvc = generationSvc;
@@ -55,6 +59,7 @@ public class ReportController {
     @ResponseStatus(HttpStatus.CREATED)
     @PreAuthorize("hasAnyRole('MSSP_ADMIN','MSSP_OPERATOR')")
     public ReportDto create(@Valid @RequestBody GenerateReportRequest req) {
+        orgScope.assertCurrentProjectAccess(req.projectId());
         return generationSvc.create(req);
     }
 
@@ -62,6 +67,7 @@ public class ReportController {
     @ResponseStatus(HttpStatus.CREATED)
     @PreAuthorize("hasAnyRole('MSSP_ADMIN','MSSP_OPERATOR')")
     public ReportDto generateLegacy(@Valid @RequestBody GenerateReportRequest req) {
+        orgScope.assertCurrentProjectAccess(req.projectId());
         return generationSvc.create(req);
     }
 
@@ -71,6 +77,7 @@ public class ReportController {
                                        @RequestBody(required = false) java.util.Map<String, Object> body) {
         Long templateId = (body != null && body.containsKey("templateId"))
             ? Long.parseLong(body.get("templateId").toString()) : null;
+        svc.get(id); // access check
         return generationSvc.generateDocument(id, templateId);
     }
 
@@ -79,13 +86,22 @@ public class ReportController {
     @PostMapping("/api/v1/reports/{id}/send-email")
     @PreAuthorize("hasAnyRole('MSSP_ADMIN','MSSP_OPERATOR')")
     public ResponseEntity<Void> sendEmail(@PathVariable Long id, @Valid @RequestBody SendEmailReportRequest req) {
+        svc.get(id); // access check
         emailReportSvc.sendEmail(id, req.emailTemplateId(), req.integrationId(), req.to(), req.cc(), req.bcc());
         return ResponseEntity.noContent().build();
+    }
+
+    @GetMapping("/api/v1/reports/{id}/preview")
+    @PreAuthorize("hasAnyRole('MSSP_ADMIN','MSSP_OPERATOR','CLIENT_USER','CLIENT_ADMIN')")
+    public Map<String, Object> preview(@PathVariable Long id) {
+        svc.get(id); // access check + client-published filter
+        return generationSvc.buildPreviewData(id);
     }
 
     @GetMapping("/api/v1/reports/{id}/export-json")
     @PreAuthorize("hasAnyRole('MSSP_ADMIN','MSSP_OPERATOR')")
     public ResponseEntity<java.util.Map<String, Object>> exportJson(@PathVariable Long id) {
+        svc.get(id); // access check
         java.util.Map<String, Object> data = generationSvc.exportJson(id);
         String filename = "report_" + id + ".json";
         return ResponseEntity.ok()

@@ -22,7 +22,10 @@ public class AgentTaskTemplateController {
     private final AgentTaskTemplateService service;
     private final AgentToolSpecRegistry agentToolSpecRegistry;
 
-    public AgentTaskTemplateController(AgentTaskTemplateService service, AgentToolSpecRegistry agentToolSpecRegistry) {
+    private final com.martecyber.ares.users.OrgScopeService orgScope;
+
+    public AgentTaskTemplateController(AgentTaskTemplateService service, AgentToolSpecRegistry agentToolSpecRegistry, com.martecyber.ares.users.OrgScopeService orgScope) {
+        this.orgScope = orgScope;
         this.service = service;
         this.agentToolSpecRegistry = agentToolSpecRegistry;
     }
@@ -76,6 +79,7 @@ public class AgentTaskTemplateController {
     public ResponseEntity<AgentTaskTemplateDto> fromTask(@PathVariable Long taskId,
                                                           @RequestParam(defaultValue = "false") boolean overwrite,
                                                           @RequestBody(required = false) AgentTaskTemplateService.FromTaskRequest req) {
+        orgScope.assertCurrentProjectAccess(service.projectIdOfTask(taskId));
         AgentTaskTemplateDto result = service.createFromTask(taskId, req, overwrite);
         return overwrite
             ? ResponseEntity.ok(result)

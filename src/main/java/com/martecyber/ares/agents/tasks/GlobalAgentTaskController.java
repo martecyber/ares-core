@@ -15,7 +15,10 @@ public class GlobalAgentTaskController {
     private final AgentTaskService service;
     private final AgentToolSpecRegistry agentToolSpecRegistry;
 
-    public GlobalAgentTaskController(AgentTaskService service, AgentToolSpecRegistry agentToolSpecRegistry) {
+    private final com.martecyber.ares.users.OrgScopeService orgScope;
+
+    public GlobalAgentTaskController(AgentTaskService service, AgentToolSpecRegistry agentToolSpecRegistry, com.martecyber.ares.users.OrgScopeService orgScope) {
+        this.orgScope = orgScope;
         this.service  = service;
         this.agentToolSpecRegistry = agentToolSpecRegistry;
     }
@@ -36,7 +39,8 @@ public class GlobalAgentTaskController {
             @RequestParam(defaultValue = "DESC") String sortDir,
             @RequestParam(defaultValue = "0")  int page,
             @RequestParam(defaultValue = "50") int size) {
-        return PagedResponse.of(service.listAll(status, tool, poolId, sortBy, sortDir, page, size), t -> t);
+        return PagedResponse.of(service.listAll(status, tool, poolId, sortBy, sortDir, page, size,
+            orgScope.currentAccessibleOrgIds()), t -> t);
     }
 
     /** Single-task detail — backs the read-only preview modal opened from the agent pool
@@ -44,6 +48,8 @@ public class GlobalAgentTaskController {
     @GetMapping("/{id}")
     @PreAuthorize("hasAnyRole('MSSP_ADMIN','MSSP_OPERATOR')")
     public GlobalTaskDto get(@PathVariable Long id) {
-        return service.getGlobal(id);
+        GlobalTaskDto dto = service.getGlobal(id);
+        orgScope.assertCurrentCanSeeOrgOwned(dto.organizationId());
+        return dto;
     }
 }

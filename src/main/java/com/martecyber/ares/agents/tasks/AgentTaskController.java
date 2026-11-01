@@ -19,7 +19,10 @@ public class AgentTaskController {
     private final AgentToolSpecRegistry agentToolSpecRegistry;
     private final TargetResolver resolver;
 
-    public AgentTaskController(AgentTaskService service, AgentToolSpecRegistry agentToolSpecRegistry, TargetResolver resolver) {
+    private final com.martecyber.ares.users.OrgScopeService orgScope;
+
+    public AgentTaskController(AgentTaskService service, AgentToolSpecRegistry agentToolSpecRegistry, TargetResolver resolver, com.martecyber.ares.users.OrgScopeService orgScope) {
+        this.orgScope = orgScope;
         this.service = service;
         this.agentToolSpecRegistry = agentToolSpecRegistry;
         this.resolver = resolver;
@@ -30,6 +33,7 @@ public class AgentTaskController {
     public PagedResponse<TaskDto> list(@PathVariable Long engId,
                                         @RequestParam(defaultValue = "0") int page,
                                         @RequestParam(defaultValue = "50") int size) {
+        orgScope.assertCurrentProjectAccess(engId);
         return PagedResponse.of(service.listForProject(engId, page, size), t -> t);
     }
 
@@ -47,6 +51,7 @@ public class AgentTaskController {
     @PreAuthorize("hasAnyRole('MSSP_ADMIN','MSSP_OPERATOR')")
     public java.util.Map<String, Object> previewTargets(@PathVariable Long engId,
                                                          @RequestBody PreviewRequest req) {
+        orgScope.assertCurrentProjectAccess(engId);
         if (req == null || req.targetsFrom() == null) {
             return java.util.Map.of("count", 0, "sample", List.of(), "items", List.of());
         }
@@ -68,6 +73,7 @@ public class AgentTaskController {
     public ResponseEntity<List<TaskDto>> create(@PathVariable Long engId,
                                                  @RequestBody CreateTask req,
                                                  Authentication auth) {
+        orgScope.assertCurrentProjectAccess(engId);
         Long createdBy = parseUserId(auth);
         return ResponseEntity.status(HttpStatus.CREATED).body(service.createAll(engId, req, createdBy));
     }
@@ -75,6 +81,7 @@ public class AgentTaskController {
     @PostMapping("/{taskId}/cancel")
     @PreAuthorize("hasAnyRole('MSSP_ADMIN','MSSP_OPERATOR')")
     public TaskDto cancel(@PathVariable Long engId, @PathVariable Long taskId) {
+        orgScope.assertCurrentProjectAccess(engId);
         return service.cancel(engId, taskId);
     }
 

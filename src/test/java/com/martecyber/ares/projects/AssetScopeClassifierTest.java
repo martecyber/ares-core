@@ -169,6 +169,28 @@ class AssetScopeClassifierTest {
     }
 
     @Test
+    void ipv6IpMatchesRegardlessOfTextualForm() {
+        Asset ip = asset(AssetType.IP, "2001:db8::5");
+        given(List.of(ip), List.of(access(ip.getId(), INDETERMINATE, false)),
+            List.of(entry("ip", "2001:0DB8:0:0::5", true)), List.of());
+        classifier.classify(PROJECT);
+        verify(accessRepo).updateScopeStatusForAssets(PROJECT, List.of(ip.getId()), IN_SCOPE);
+    }
+
+    @Test
+    void ipv6CidrMatchesAnIpWithinTheRangeAndTheSameNetworkWrittenDifferently() {
+        Asset ip = asset(AssetType.IP, "2001:db8:0:1::42");
+        Asset net = asset(AssetType.NETWORK, "2001:db8::/32");
+        given(List.of(ip, net),
+            List.of(access(ip.getId(), INDETERMINATE, false), access(net.getId(), INDETERMINATE, false)),
+            List.of(entry("cidr", "2001:0db8::/32", true)), List.of());
+
+        classifier.classify(PROJECT);
+
+        assertTrue(capturedIdsFor(IN_SCOPE).containsAll(List.of(ip.getId(), net.getId())));
+    }
+
+    @Test
     void urlWildcardMatchesByPrefix() {
         Asset app = asset(AssetType.WEB_APPLICATION, "https://example.com:8443");
         given(List.of(app), List.of(access(app.getId(), INDETERMINATE, false)),
@@ -453,6 +475,25 @@ class AssetScopeClassifierTest {
         Asset a = asset(AssetType.DOMAIN, "cdn.example.com");
         assertTrue(classifier.isThirdParty(a, List.of(kbEntry("domain", "cdn.example.com"))));
         assertFalse(classifier.isThirdParty(a, List.of(kbEntry("domain", "other.example.com"))));
+    }
+
+    @Test
+    void markThirdPartyCachesTheCompiledEntriesUntilInvalidated() {
+        Asset cdn = asset(AssetType.DOMAIN, "cdn.example.com");
+        Asset app = asset(AssetType.DOMAIN, "app.example.com");
+        when(kbThirdPartyRepo.findAllByEnabledTrue()).thenReturn(List.of(kbEntry("domain", "cdn.example.com")));
+
+        classifier.markThirdParty(List.of(cdn, app));
+        classifier.markThirdParty(List.of(cdn, app));
+        assertTrue(cdn.isThirdParty());
+        assertFalse(app.isThirdParty());
+        verify(kbThirdPartyRepo, times(1)).findAllByEnabledTrue();
+
+        when(kbThirdPartyRepo.findAllByEnabledTrue()).thenReturn(List.of(kbEntry("domain_wildcard", "*.example.com")));
+        classifier.invalidateThirdPartyCache();
+        classifier.markThirdParty(List.of(app));
+        assertTrue(app.isThirdParty());
+        verify(kbThirdPartyRepo, times(2)).findAllByEnabledTrue();
     }
 
     // ── explainScope() ───────────────────────────────────────────────

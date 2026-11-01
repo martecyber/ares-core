@@ -162,7 +162,9 @@ public class DashboardService {
             .toList();
         Map<Long, DashboardScopeLabels.ScopeInfo> scopeInfo = DashboardScopeLabels.resolve(all, orgRepo, projectRepo);
         String needle = q == null ? "" : q.trim().toLowerCase(java.util.Locale.ROOT);
+        java.util.Set<Long> visibleOrgs = orgScope.currentAccessibleOrgIds();
         return all.stream()
+            .filter(d -> orgScope.canSeeOrgOwned(visibleOrgs, scopeInfo.get(d.getId()).organizationId()))
             .map(d -> new DashboardBrowseEntry(d.getId(), d.getName(), d.getLevel(), d.getScopeId(),
                 scopeInfo.get(d.getId()).label(), d.isDefault()))
             .filter(e -> needle.isEmpty()
