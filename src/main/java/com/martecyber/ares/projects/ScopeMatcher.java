@@ -37,6 +37,8 @@ final class ScopeMatcher {
     private final Set<String> cidrKeys = new HashSet<>();
     private final List<Block> cidrBlocks = new ArrayList<>();
     // Entries whose value can't be indexed safely fall back to the reference rule.
+    // repository / container_image entries, compared via softwareKey().
+    private final Set<String> softwareKeys = new HashSet<>();
     private final List<String[]> fallback = new ArrayList<>();
     private boolean empty = true;
 
@@ -75,6 +77,7 @@ final class ScopeMatcher {
             }
             case "url_wildcard"  -> urlPrefixes.add(urlWildcardPrefix(val).toLowerCase());
             case "text_contains" -> textNeedles.add(val.toLowerCase());
+            case "repository", "container_image" -> softwareKeys.add(softwareKey(val));
             case "email_domain"  -> emailDomains.add(val.toLowerCase());
             case "ip" -> {
                 ipRaw.add(val);
@@ -124,6 +127,9 @@ final class ScopeMatcher {
                     String u = id.toLowerCase();
                     for (String p : urlPrefixes) if (u.startsWith(p)) return true;
                 }
+            }
+            case AssetType.SOFTWARE -> {
+                if (softwareKeys.contains(softwareKey(id))) return true;
             }
             case AssetType.TEXT_DATA -> {
                 if (!textNeedles.isEmpty()) {
@@ -199,8 +205,19 @@ final class ScopeMatcher {
                                       && id.equalsIgnoreCase(val);
             case "directory"       -> AssetType.DIRECTORY.equals(asset.getType())
                                       && id.equalsIgnoreCase(val);
+            case "repository", "container_image" -> AssetType.SOFTWARE.equals(asset.getType())
+                                      && softwareKey(id).equals(softwareKey(val));
             default                -> false;
         };
+    }
+
+    /** A git repository URL or container image reference, compared case-insensitively and
+     *  ignoring a trailing "/" or ".git" (https://github.com/acme/app.git == .../acme/app). */
+    static String softwareKey(String v) {
+        String k = v.trim().toLowerCase();
+        while (k.endsWith("/")) k = k.substring(0, k.length() - 1);
+        if (k.endsWith(".git")) k = k.substring(0, k.length() - 4);
+        return k;
     }
 
     /** *.example.com matches api.example.com and example.com itself. */

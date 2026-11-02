@@ -168,6 +168,10 @@ public class ScopeEntryAssetDeriver {
             case "email"        -> Optional.of(new DeriveMapping(AssetType.EMAIL, value, Map.of()));
             case "system"       -> Optional.of(new DeriveMapping(AssetType.SYSTEM, value, Map.of()));
             case "directory"    -> Optional.of(new DeriveMapping(AssetType.DIRECTORY, value, Map.of()));
+            // A git repository or container image a dependency scanner (Trivy) can scan; the
+            // scan's own SOFTWARE asset uses the same identifier, so both land on one asset.
+            case "repository", "container_image" ->
+                Optional.of(new DeriveMapping(AssetType.SOFTWARE, value.trim(), Map.of()));
             default             -> Optional.empty(); // ip_wildcard, email_domain, other — not derivable
         };
     }

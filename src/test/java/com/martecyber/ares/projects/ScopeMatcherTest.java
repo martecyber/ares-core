@@ -23,6 +23,7 @@ class ScopeMatcherTest {
         {"hardware", "HW-1"}, {"text_contains", "Google-Site-Verification"},
         {"email", "Admin@Example.com"}, {"email_domain", "Partner.io"},
         {"system", "SAP ERP"}, {"directory", "Corp AD"}, {"unknown_kind", "x"},
+        {"repository", "https://GitHub.com/acme/app.git"}, {"container_image", "ghcr.io/acme/api:1.2"},
     };
 
     private static final String[][] ASSETS = {
@@ -43,6 +44,9 @@ class ScopeMatcherTest {
         {AssetType.EMAIL, "admin@example.com"}, {AssetType.EMAIL, "bob@partner.io"}, {AssetType.EMAIL, "bob@notpartner.io"},
         {AssetType.EMAIL, "weird@x@partner.io"}, {AssetType.SYSTEM, "sap erp"}, {AssetType.DIRECTORY, "CORP AD"},
         {AssetType.HOST, "example.com"},
+        {AssetType.SOFTWARE, "https://github.com/acme/app"}, {AssetType.SOFTWARE, "https://github.com/acme/app/"},
+        {AssetType.SOFTWARE, "https://github.com/acme/other"}, {AssetType.SOFTWARE, "ghcr.io/acme/api:1.2"},
+        {AssetType.SOFTWARE, "ghcr.io/acme/api:1.3"}, {AssetType.SOFTWARE, "com.acme:app"},
     };
 
     private static Asset asset(String type, String id) {
@@ -88,5 +92,18 @@ class ScopeMatcherTest {
         assertFalse(m.matches(asset(AssetType.DOMAIN, "example.com")));
         assertFalse(ScopeMatcher.EMPTY.matches(asset(AssetType.DOMAIN, "example.com")));
         assertFalse(ScopeMatcher.compile(List.<String[]>of(new String[]{"domain", "x.com"})).matches(asset(AssetType.DOMAIN, null)));
+    }
+
+    @Test
+    void repositoryAndImageEntriesMatchSoftwareAssets() {
+        ScopeMatcher m = ScopeMatcher.compile(List.<String[]>of(
+            new String[]{"repository", "https://GitHub.com/acme/app.git"},
+            new String[]{"container_image", "ghcr.io/acme/api:1.2"}));
+        assertTrue(m.matches(asset(AssetType.SOFTWARE, "https://github.com/acme/app")));
+        assertTrue(m.matches(asset(AssetType.SOFTWARE, "https://github.com/acme/app/")));
+        assertTrue(m.matches(asset(AssetType.SOFTWARE, "ghcr.io/acme/api:1.2")));
+        assertFalse(m.matches(asset(AssetType.SOFTWARE, "ghcr.io/acme/api:1.3")));
+        assertFalse(m.matches(asset(AssetType.SOFTWARE, "com.acme:app")));
+        assertFalse(m.matches(asset(AssetType.WEB_APPLICATION, "https://github.com/acme/app")));
     }
 }

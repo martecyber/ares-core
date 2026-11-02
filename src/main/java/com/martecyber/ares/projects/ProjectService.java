@@ -356,7 +356,7 @@ public class ProjectService {
             ProjectScopeEntry entry = new ProjectScopeEntry();
             entry.setProjectId(projectId);
             entry.setKind(ne.kind());
-            entry.setValue(ne.value());
+            entry.setValue(repositoryUrl(ne.kind(), ne.value()));
             entry.setNotes(req.notes());
             entry.setMetadata(req.metadata());
             entry.setInScope(inScope);
@@ -369,6 +369,15 @@ public class ProjectService {
 
         scheduleAfterCommit(() -> scheduler.schedule(projectId));
         return results;
+    }
+
+    /** A repository entry without a scheme (github.com/acme/app) gets https:// — Trivy, the
+     *  scanner these entries feed, treats a scheme-less value as a local path. */
+    static String repositoryUrl(String kind, String value) {
+        if ("repository".equals(kind) && value != null && !value.contains("://") && !value.startsWith("git@")) {
+            return "https://" + value;
+        }
+        return value;
     }
 
     @Transactional

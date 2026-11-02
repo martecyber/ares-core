@@ -679,4 +679,16 @@ class ProjectServiceTest {
         when(repo.findById(99L)).thenReturn(Optional.empty());
         assertFalse(service.isRetestProject(99L));
     }
+
+    @org.junit.jupiter.api.Test
+    void repositoryScopeEntriesGetAnHttpsSchemeWhenMissing() {
+        org.junit.jupiter.api.Assertions.assertEquals("https://github.com/acme/app",
+            ProjectService.repositoryUrl("repository", "github.com/acme/app"));
+        org.junit.jupiter.api.Assertions.assertEquals("https://gitlab.example.com/x/y.git",
+            ProjectService.repositoryUrl("repository", "https://gitlab.example.com/x/y.git"));
+        org.junit.jupiter.api.Assertions.assertEquals("git@github.com:acme/app.git",
+            ProjectService.repositoryUrl("repository", "git@github.com:acme/app.git"));
+        org.junit.jupiter.api.Assertions.assertEquals("python:3.9",
+            ProjectService.repositoryUrl("container_image", "python:3.9"));
+    }
 }
