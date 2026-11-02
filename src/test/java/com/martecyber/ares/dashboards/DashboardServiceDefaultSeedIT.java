@@ -150,12 +150,13 @@ class DashboardServiceDefaultSeedIT {
         Long dashboardId = service.list(DashboardLevel.ORGANIZATION, 1L).get(0).id();
         int goodWidgetCount = service.get(dashboardId).widgets().size();
 
-        em.createNativeQuery("""
+        Long staleWidgetId = ((Number) em.createNativeQuery("""
             insert into ares.dashboard_widget (dashboard_id, type, config, pos_x, pos_y, width, height)
             values (:dashboardId, 'FINDING_SLA_DUE', '{}', 0, 99, 2, 2)
+            returning id
             """)
             .setParameter("dashboardId", dashboardId)
-            .executeUpdate();
+            .getSingleResult()).longValue();
 
         var auth = new TestingAuthenticationToken("1", null, List.of(new SimpleGrantedAuthority("ROLE_MSSP_ADMIN")));
         auth.setAuthenticated(true);
@@ -164,7 +165,8 @@ class DashboardServiceDefaultSeedIT {
             .andExpect(jsonPath("$.widgets", org.hamcrest.Matchers.hasSize(goodWidgetCount + 1)))
             .andExpect(jsonPath("$.widgets[?(@.typeName == 'FINDING_SLA_DUE')].type").value(org.hamcrest.Matchers.contains((Object) null)));
 
-        mockMvc.perform(get("/api/v1/dashboards/" + dashboardId + "/data").with(authentication(auth)))
-            .andExpect(status().isOk());
+        // Widgets load their data one by one; a stale type has nothing to compute (204), not a 500.
+        mockMvc.perform(get("/api/v1/dashboards/" + dashboardId + "/widgets/" + staleWidgetId + "/data").with(authentication(auth)))
+            .andExpect(status().isNoContent());
     }
 }

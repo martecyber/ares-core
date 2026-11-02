@@ -36,7 +36,7 @@ import static org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTest
 /**
  * Real-Postgres coverage for OWASP (AQL-wide initiative, Phase 5 — first of the four remaining KB
  * catalogs migrated off MongoDB): the repository's upsert-by-(owaspId,year) shape, the AQL
- * registry's direct queries including HAS on {@code cwes}, and — critically — that {@code
+ * registry's direct queries including HAS on {@code cwe}, and — critically — that {@code
  * detection.owasp.*} resolves correctly now that DetectionAqlRegistry/FindingAqlRegistry switched
  * this namespace from KB_FEDERATED to a RelationAqlField.
  */
@@ -87,7 +87,7 @@ class OwaspAqlRegistryIT {
         new AqlRegistryLookup(List.of(owaspRegistry, cveRegistry, cveKevDetailRegistry, assetRegistry, findingRegistry, detectionRegistry, cweRegistry, capecRegistry,
             new com.martecyber.ares.kb.attack.AttackAqlRegistry(), new com.martecyber.ares.kb.attack.AttackTacticAqlRegistry(),
             new com.martecyber.ares.kb.attack.AttackMitigationAqlRegistry(),
-            new com.martecyber.ares.projects.ProjectAssetAccessAqlRegistry()));
+            new com.martecyber.ares.projects.ProjectAssetAccessAqlRegistry(), new com.martecyber.ares.tags.TagAqlRegistry()));
         owaspCompiler = new PostgresSpecificationCompiler<>(owaspRegistry);
         detectionCompiler = new PostgresSpecificationCompiler<>(detectionRegistry);
 
@@ -95,11 +95,11 @@ class OwaspAqlRegistryIT {
         detectionRepository.deleteAll();
         cweRepository.deleteAll();
 
-        // cwes is list[cwe] now (an array-membership RelationAqlField, not a bare HAS array) — the
-        // nested "cwes.id == ..." query below needs a real CweEntry row to correlate against.
+        // cwe is list[cwe] now (an array-membership RelationAqlField, not a bare HAS array) — the
+        // nested "cwe.id == ..." query below needs a real CweEntry row to correlate against.
         CweEntry cwe22 = new CweEntry();
         cwe22.setCweId("22");
-        // cwes.id resolves against CweEntry.code (the prefixed form), not the bare cweId.
+        // cwe.id resolves against CweEntry.code (the prefixed form), not the bare cweId.
         cwe22.setCode("cwe-22");
         cweRepository.save(cwe22);
 
@@ -201,12 +201,12 @@ class OwaspAqlRegistryIT {
         assertEquals(1, runOwasp("year == 2017").size());
     }
 
-    /** cwes is list[cwe] now, not a bare HAS-only array — "cwes.id == ..." resolves to the same
+    /** cwe is list[cwe] now, not a bare HAS-only array — "cwe.id == ..." resolves to the same
      *  OWASP categories "cwes HAS ..." used to, via array_contains_ci. */
     @Test
-    void cwesListRelationWorks() {
-        assertEquals(1, runOwasp("cwes.id == \"cwe-22\"").size());
-        assertEquals(0, runOwasp("cwes.id == \"cwe-999\"").size());
+    void cweListRelationWorks() {
+        assertEquals(1, runOwasp("cwe.id == \"cwe-22\"").size());
+        assertEquals(0, runOwasp("cwe.id == \"cwe-999\"").size());
     }
 
     @Test

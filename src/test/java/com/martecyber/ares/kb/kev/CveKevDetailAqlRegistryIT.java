@@ -89,7 +89,7 @@ class CveKevDetailAqlRegistryIT {
         new AqlRegistryLookup(List.of(cveRegistry, kevRegistry, assetRegistry, findingRegistry, detectionRegistry, owaspRegistry, cweRegistry, capecRegistry,
             new com.martecyber.ares.kb.attack.AttackAqlRegistry(), new com.martecyber.ares.kb.attack.AttackTacticAqlRegistry(),
             new com.martecyber.ares.kb.attack.AttackMitigationAqlRegistry(),
-            new com.martecyber.ares.projects.ProjectAssetAccessAqlRegistry()));
+            new com.martecyber.ares.projects.ProjectAssetAccessAqlRegistry(), new com.martecyber.ares.tags.TagAqlRegistry()));
         cveCompiler = new PostgresSpecificationCompiler<>(cveRegistry);
         detectionCompiler = new PostgresSpecificationCompiler<>(detectionRegistry);
 
@@ -98,11 +98,11 @@ class CveKevDetailAqlRegistryIT {
         cveRepository.deleteAll();
         cweRepository.deleteAll();
 
-        // kev.cwes is list[cwe] now (an array-membership RelationAqlField, not a bare HAS array) —
-        // the nested "kev.cwes.id == ..." query below needs a real CweEntry row to correlate against.
+        // kev.cwe is list[cwe] now (an array-membership RelationAqlField, not a bare HAS array) —
+        // the nested "kev.cwe.id == ..." query below needs a real CweEntry row to correlate against.
         CweEntry cwe79 = new CweEntry();
         cwe79.setCweId("79");
-        // kev.cwes.id resolves against CweEntry.code (the prefixed form), not the bare cweId.
+        // kev.cwe.id resolves against CweEntry.code (the prefixed form), not the bare cweId.
         cwe79.setCode("cwe-79");
         cweRepository.save(cwe79);
 
@@ -177,7 +177,7 @@ class CveKevDetailAqlRegistryIT {
     void kevRelationLeavesAreRegisteredOnCve() {
         assertTrue(cveRegistry.field("kev.source").isPresent());
         assertTrue(cveRegistry.field("kev.knownRansomwareCampaignUse").isPresent());
-        assertTrue(cveRegistry.field("kev.cwes").isPresent());
+        assertTrue(cveRegistry.field("kev.cwe").isPresent());
     }
 
     @Test
@@ -195,14 +195,14 @@ class CveKevDetailAqlRegistryIT {
         assertEquals(1, runCve("kev.reportedExploitedByCanaries == true").size());
     }
 
-    /** kev.cwes is list[cwe] now, not a bare HAS-only array — "kev.cwes.id == ..." resolves to
-     *  the same CVEs "kev.cwes HAS ..." used to, via array_contains_ci. Three hops deep from
-     *  Detection's own perspective (detection.cve.kev.cwes.id) — within RelationExpansion's
+    /** kev.cwe is list[cwe] now, not a bare HAS-only array — "kev.cwe.id == ..." resolves to
+     *  the same CVEs "kev.cwe HAS ..." used to, via array_contains_ci. Three hops deep from
+     *  Detection's own perspective (detection.cve.kev.cwe.id) — within RelationExpansion's
      *  depth cap. */
     @Test
-    void kevCwesListRelationWorksThroughTheRelation() {
-        assertEquals(1, runCve("kev.cwes.id == \"cwe-79\"").size());
-        assertEquals(0, runCve("kev.cwes.id == \"cwe-999\"").size());
+    void kevCweListRelationWorksThroughTheRelation() {
+        assertEquals(1, runCve("kev.cwe.id == \"cwe-79\"").size());
+        assertEquals(0, runCve("kev.cwe.id == \"cwe-999\"").size());
     }
 
     /** The critical regression test for this phase's AqlRegistryLookup fix: without the

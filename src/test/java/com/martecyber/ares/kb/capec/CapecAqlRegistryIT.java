@@ -93,7 +93,7 @@ class CapecAqlRegistryIT {
             assetRegistry, findingRegistry, detectionRegistry,
             new com.martecyber.ares.kb.attack.AttackAqlRegistry(), new com.martecyber.ares.kb.attack.AttackTacticAqlRegistry(),
             new com.martecyber.ares.kb.attack.AttackMitigationAqlRegistry(),
-            new com.martecyber.ares.projects.ProjectAssetAccessAqlRegistry()));
+            new com.martecyber.ares.projects.ProjectAssetAccessAqlRegistry(), new com.martecyber.ares.tags.TagAqlRegistry()));
         capecCompiler = new PostgresSpecificationCompiler<>(capecRegistry);
         detectionCompiler = new PostgresSpecificationCompiler<>(detectionRegistry);
 
@@ -101,8 +101,8 @@ class CapecAqlRegistryIT {
         detectionRepository.deleteAll();
         cweRepository.deleteAll();
 
-        // relatedCwes is now list[cwe] (an array-membership RelationAqlField, not the bare HAS-only
-        // array relatedCweIds used to be) — the nested "relatedCwes.id == ..." queries below need
+        // relatedCwe is now list[cwe] (an array-membership RelationAqlField, not the bare HAS-only
+        // array relatedCweIds used to be) — the nested "relatedCwe.id == ..." queries below need
         // real CweEntry rows to correlate against, unlike the old bare HAS which only ever looked
         // at CAPEC's own array.
         cweRepository.save(cweEntry("CWE-79"));
@@ -165,7 +165,7 @@ class CapecAqlRegistryIT {
     private CweEntry cweEntry(String code) {
         CweEntry e = new CweEntry();
         e.setCweId(code.replace("CWE-", ""));
-        // relatedCwes.id resolves against CweEntry.code (the prefixed form), not the bare cweId.
+        // relatedCwe.id resolves against CweEntry.code (the prefixed form), not the bare cweId.
         e.setCode(code);
         return e;
     }
@@ -185,20 +185,20 @@ class CapecAqlRegistryIT {
         assertEquals(2, runCapec("abstraction == \"Standard\"").size());
     }
 
-    /** relatedCwes is list[cwe] now (was the bare HAS-only array relatedCweIds) —
-     *  "relatedCwes.id == ..." resolves to the same CAPECs "relatedCweIds HAS ..." used to (via
+    /** relatedCwe is list[cwe] now (was the bare HAS-only array relatedCweIds) —
+     *  "relatedCwe.id == ..." resolves to the same CAPECs "relatedCweIds HAS ..." used to (via
      *  array_contains_ci, the same case-insensitive membership check HAS itself uses), while also
      *  reaching every other CWE field through the same relation. */
     @Test
-    void relatedCwesListRelationWorks() {
-        assertEquals(1, runCapec("relatedCwes.id == \"cwe-79\"").size());
-        assertEquals(0, runCapec("relatedCwes.id == \"cwe-999\"").size());
+    void relatedCweListRelationWorks() {
+        assertEquals(1, runCapec("relatedCwe.id == \"cwe-79\"").size());
+        assertEquals(0, runCapec("relatedCwe.id == \"cwe-999\"").size());
     }
 
     @Test
-    void relatedCwesBareFieldIsNotDirectlyComparable() {
+    void relatedCweBareFieldIsNotDirectlyComparable() {
         assertThrows(com.martecyber.ares.aql.compile.AqlCompileException.class,
-            () -> runCapec("relatedCwes == \"cwe-79\""));
+            () -> runCapec("relatedCwe == \"cwe-79\""));
     }
 
     @Test
@@ -236,7 +236,7 @@ class CapecAqlRegistryIT {
     @Test
     void capecRelationLeavesAreRegisteredOnDetection() {
         assertTrue(detectionRegistry.field("capec.id").isPresent());
-        assertTrue(detectionRegistry.field("capec.relatedCwes").isPresent());
+        assertTrue(detectionRegistry.field("capec.relatedCwe").isPresent());
     }
 
     @Test
@@ -247,7 +247,7 @@ class CapecAqlRegistryIT {
 
     @Test
     void transitiveDetectionCapecHasWorksThroughTheRelation() {
-        assertEquals(1, runDetection("capec.relatedCwes.id == \"cwe-79\"").size());
-        assertEquals(0, runDetection("capec.relatedCwes.id == \"cwe-89\"").size());
+        assertEquals(1, runDetection("capec.relatedCwe.id == \"cwe-79\"").size());
+        assertEquals(0, runDetection("capec.relatedCwe.id == \"cwe-89\"").size());
     }
 }

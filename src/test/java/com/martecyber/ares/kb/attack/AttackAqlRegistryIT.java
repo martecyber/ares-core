@@ -96,7 +96,7 @@ class AttackAqlRegistryIT {
         detectionRegistry = new DetectionAqlRegistry(referenceCatalogRepository, detectionStatusRepository);
         new AqlRegistryLookup(List.of(attackRegistry, tacticRegistry, mitigationRegistry, cveRegistry,
             cveKevDetailRegistry, owaspRegistry, cweRegistry, capecRegistry, assetRegistry, findingRegistry, detectionRegistry,
-            new com.martecyber.ares.projects.ProjectAssetAccessAqlRegistry()));
+            new com.martecyber.ares.projects.ProjectAssetAccessAqlRegistry(), new com.martecyber.ares.tags.TagAqlRegistry()));
         attackCompiler = new PostgresSpecificationCompiler<>(attackRegistry);
         detectionCompiler = new PostgresSpecificationCompiler<>(detectionRegistry);
 

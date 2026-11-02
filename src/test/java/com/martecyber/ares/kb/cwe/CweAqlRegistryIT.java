@@ -85,7 +85,7 @@ class CweAqlRegistryIT {
         new AqlRegistryLookup(List.of(cweRegistry, cveRegistry, cveKevDetailRegistry, owaspRegistry, assetRegistry, findingRegistry, detectionRegistry, capecRegistry,
             new com.martecyber.ares.kb.attack.AttackAqlRegistry(), new com.martecyber.ares.kb.attack.AttackTacticAqlRegistry(),
             new com.martecyber.ares.kb.attack.AttackMitigationAqlRegistry(),
-            new com.martecyber.ares.projects.ProjectAssetAccessAqlRegistry()));
+            new com.martecyber.ares.projects.ProjectAssetAccessAqlRegistry(), new com.martecyber.ares.tags.TagAqlRegistry()));
         cweCompiler = new PostgresSpecificationCompiler<>(cweRegistry);
         detectionCompiler = new PostgresSpecificationCompiler<>(detectionRegistry);
 
