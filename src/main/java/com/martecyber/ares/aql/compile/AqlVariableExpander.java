@@ -47,12 +47,8 @@ import java.util.regex.Pattern;
  * branch, which exists specifically to make that possible without touching the lexer's character
  * set (a colon-bearing {@code OffsetDateTime.toString()} can't lex as one WORD token today).
  *
- * <p>Not wired into Workflow's own {@code {{...}}} paths (WorkflowRunService/WorkflowGraphValidator)
- * — those already run their own {@code MessagingTemplate.render} pass over the AQL string first,
- * which would blank out an unrecognized {@code {{now}}} to {@code ""} before this class ever saw
- * it. A workflow author who needs "now" today still has the plain unbraced {@code now-7d} literal,
- * unaffected either way. Reconciling the two {@code {{...}}} systems is a follow-up, not required
- * for the dashboards/list-view use case this was built for.
+ * <p>Workflows: WorkflowRunService first renders the workflow's own {{...}} placeholders (keeping
+ * these AQL variables intact, see WorkflowAqlTemplate), then calls this with the workflow's scope.
  */
 @Component
 public class AqlVariableExpander {

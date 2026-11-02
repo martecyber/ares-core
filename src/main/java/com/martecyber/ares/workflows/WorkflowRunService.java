@@ -144,6 +144,8 @@ public class WorkflowRunService {
     @org.springframework.context.annotation.Lazy
     private WorkflowRunService self;
 
+    private final com.martecyber.ares.aql.compile.AqlVariableExpander aqlVariableExpander;
+
     public WorkflowRunService(WorkflowRepository workflowRepo, WorkflowRunRepository runRepo,
                                WorkflowStepRunRepository stepRunRepo, AqlRegistryLookup aqlRegistries,
                                WorkflowEntityLookup entityLookup, MessagingService messagingService,
@@ -156,7 +158,9 @@ public class WorkflowRunService {
                                AqlQueryableEntityRegistry aqlQueryableEntities,
                                ExploitService exploitService, FindingTemplateService findingTemplateService,
                                AgentToolSpecRegistry agentToolSpecRegistry, ReportGenerationService reportGenerationService,
-                               FindingEmailReportService findingEmailReportService) {
+                               FindingEmailReportService findingEmailReportService,
+                               com.martecyber.ares.aql.compile.AqlVariableExpander aqlVariableExpander) {
+        this.aqlVariableExpander = aqlVariableExpander;
         this.workflowRepo = workflowRepo;
         this.runRepo = runRepo;
         this.stepRunRepo = stepRunRepo;
@@ -805,7 +809,7 @@ public class WorkflowRunService {
         String aql = textOrThrow(config, "aql", node.id());
 
         Map<String, Object> flatContext = WorkflowContextFlattener.flatten(run.getContext());
-        String resolvedAql = MessagingTemplate.render(aql, flatContext);
+        String resolvedAql = resolveAql(run, aql, flatContext);
 
         Object entityIdVal = flatContext.get("trigger.entityId");
         Long entityId = entityIdVal instanceof Number n ? n.longValue() : null;
@@ -847,7 +851,7 @@ public class WorkflowRunService {
         return switch (kind == null ? "" : kind) {
             case "QUERY" -> {
                 String entityType = operand.path("entityType").asText(null);
-                String aql = MessagingTemplate.render(operand.path("aql").asText(""), flatContext);
+                String aql = resolveAql(run, operand.path("aql").asText(""), flatContext);
                 yield countByAql(run, node.id(), entityType, aql);
             }
             case "VARIABLE" -> {
@@ -864,6 +868,29 @@ public class WorkflowRunService {
             default -> throw new WorkflowValidationException("CONDITION node '" + node.id()
                 + "' (COUNT_COMPARE." + side + "): unknown count operand kind '" + kind + "'");
         };
+    }
+
+    /**
+     * An AQL string from a workflow node, ready to parse: first the workflow's own {{...}}
+     * placeholders (run context), then AQL's context variables ({{now}}, {{current_iteration_*}},
+     * {{pX_sla_period}}) against the workflow's scope. Platform workflows fall back to the
+     * triggering entity's project/organization.
+     */
+    String resolveAql(WorkflowRun run, String aql, Map<String, Object> flatContext) {
+        String rendered = WorkflowAqlTemplate.render(aql, flatContext);
+        if (rendered.indexOf("{{") < 0) return rendered;
+        Workflow wf = workflowRepo.findById(run.getWorkflowId()).orElseThrow(() -> NotFoundException.of("workflow", run.getWorkflowId()));
+        Long projectId = WorkflowScope.PROJECT.equals(wf.getScopeKind()) ? wf.getScopeId() : null;
+        Long organizationId = WorkflowScope.ORGANIZATION.equals(wf.getScopeKind()) ? wf.getScopeId() : null;
+        if (projectId == null && organizationId == null) {
+            projectId = WorkflowAqlTemplate.triggerScopeId(flatContext, "projectId");
+            organizationId = WorkflowAqlTemplate.triggerScopeId(flatContext, "organizationId");
+        }
+        try {
+            return aqlVariableExpander.expand(rendered, projectId, organizationId);
+        } catch (com.martecyber.ares.aql.compile.AqlCompileException e) {
+            throw new WorkflowValidationException(e.getMessage());
+        }
     }
 
     private long countByAql(WorkflowRun run, String nodeId, String entityType, String aql) {
@@ -935,7 +962,7 @@ public class WorkflowRunService {
         List<List<Object>> sourceResults = new ArrayList<>();
         for (JsonNode source : config.get("sources")) {
             String entityType = textOrThrow(source, "entityType", node.id());
-            String aql = MessagingTemplate.render(textOrThrow(source, "aql", node.id()), flatContext);
+            String aql = resolveAql(run, textOrThrow(source, "aql", node.id()), flatContext);
             if (PROJECT_SCOPED_VARIABLE_ENTITIES.contains(entityType) && WorkflowScope.PLATFORM.equals(wf.getScopeKind())) {
                 throw new WorkflowValidationException("ASSIGN_VARIABLE node '" + node.id() + "': entity '"
                     + entityType + "' can't be queried from a platform-scoped workflow");

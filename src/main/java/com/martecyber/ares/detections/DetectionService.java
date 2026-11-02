@@ -224,7 +224,7 @@ public class DetectionService {
                 .compile(node)
                 .and(scopeSpecification(projectId, orgIds));
 
-        return mapToDto(repo.findAll(spec, p));
+        return mapToDto(com.martecyber.ares.assets.AssetAqlProjectContext.runWithProject(projectId, () -> repo.findAll(spec, p)));
     }
 
     /** Count-only variant of {@link #listByAql} — same scope resolution and AQL compilation, no
@@ -240,7 +240,7 @@ public class DetectionService {
             new com.martecyber.ares.aql.compile.PostgresSpecificationCompiler<>(aqlRegistry)
                 .compile(node)
                 .and(scopeSpecification(projectId, orgIds));
-        return repo.count(spec);
+        return com.martecyber.ares.assets.AssetAqlProjectContext.runWithProject(projectId, () -> repo.count(spec));
     }
 
     /** Grouped-count variant of {@link #countByAql} for the dashboard AQL_CHART widget — same
@@ -268,10 +268,10 @@ public class DetectionService {
                 throw new com.martecyber.ares.aql.compile.AqlCompileException(
                     "Bucketing detections by iteration is only available on a project dashboard");
             }
-            return countGroupedByIteration(projectId, spec, seriesField, topN, sortMode);
+            return com.martecyber.ares.assets.AssetAqlProjectContext.runWithProject(projectId, () -> countGroupedByIteration(projectId, spec, seriesField, topN, sortMode));
         }
-        return com.martecyber.ares.aql.compile.AqlGroupCountSupport.execute(
-            em, spec, Detection.class, aqlRegistry, groupByField, dateBucket, seriesField, topN, sortMode);
+        return com.martecyber.ares.assets.AssetAqlProjectContext.runWithProject(projectId, () -> com.martecyber.ares.aql.compile.AqlGroupCountSupport.execute(
+            em, spec, Detection.class, aqlRegistry, groupByField, dateBucket, seriesField, topN, sortMode));
     }
 
     /** Joins the AQL-filtered {@code Detection} set to {@link DetectionIterationStat} on
@@ -444,17 +444,13 @@ public class DetectionService {
                 ? org.springframework.data.domain.Sort.Direction.ASC
                 : org.springframework.data.domain.Sort.Direction.DESC;
         String col = switch (sortBy != null ? sortBy.toLowerCase() : "") {
-            // "severity" (the sortBy key the UI already sends for this column) now sorts by the
-            // real canonical priority column directly — the old severityWeight @Formula bridge
-            // (5=critical..1=info, the inverse of priority's 0=critical..4=info) was retired
-            // because nothing kept it in sync with priority becoming the source of truth, and
-            // ascending-by-severityWeight silently sorted least-urgent-first instead of the
-            // most-urgent-first an ascending sort on a "0=most urgent" column should give.
-            case "severity"  -> "priority";
-            case "title"     -> "title";
-            case "lastseen"  -> "lastSeen";
-            case "status"    -> "status";
-            case "source"    -> "sourceType";
+            // Canonical keys match the AQL field names (priority, sourceType). "severity" and
+            // "source" are the old keys, kept so saved list widgets and list-view URLs still sort.
+            case "priority", "severity"   -> "priority";
+            case "title"                  -> "title";
+            case "lastseen"               -> "lastSeen";
+            case "status"                 -> "status";
+            case "sourcetype", "source"   -> "sourceType";
             default          -> "createdAt";
         };
         return org.springframework.data.domain.Sort.by(dir, col);

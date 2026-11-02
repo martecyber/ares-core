@@ -53,20 +53,16 @@ public class CapecAqlRegistry implements EntityAqlRegistry<CapecEntry> {
         register(new ArrayAqlField<>("prerequisites", ARRAY_OPS, r -> r.get("prerequisites")));
         register(new ArrayAqlField<>("mitigations", ARRAY_OPS, r -> r.get("mitigations")));
 
-        // relatedCwe/relatedAttackTechnique/parentCapec/childCapec: list[cwe]/list[attackTechnique]/
-        // list[capec]/list[capec] (were bare ArrayAqlField/HAS-only fields named relatedCweIds/
-        // relatedAttackTechniqueIds/parentCapecIds/childCapecIds) — array-membership relations,
-        // named after the entity they resolve to, singular regardless of cardinality (same "cwe"
-        // convention as CveAqlRegistry — see its own comment for why). parentCapec/childCapec are
-        // self-referential (CAPEC -> CAPEC), safe from runaway expansion thanks to
-        // RelationExpansion's own depth cap. The 4th/5th listOf args are real JPA property names,
-        // unaffected by any AQL-surface renaming. relatedCwe correlates against CweEntry.code (not
-        // cweId) — relatedCweIds stores the "cwe-79"-prefixed form. The prefix for
-        // relatedAttackTechnique is "attackTechnique", matching AttackAqlRegistry's own entityName().
+        // relatedCwe/relatedAttackTechnique: catalog cross-refs, named after the target entity in
+        // the singular regardless of cardinality (same convention as CweAqlRegistry.relatedCapec).
+        // parents/children: role-based self-relations (CAPEC -> CAPEC), plural like CWE's own
+        // parents/children; safe from runaway expansion thanks to RelationExpansion's depth cap.
+        // The 4th/5th listOf args are JPA property names. relatedCwe correlates against
+        // CweEntry.code — relatedCweIds stores the "cwe-79"-prefixed form.
         register(RelationAqlField.<CapecEntry, CweEntry>listOf("relatedCwe", "cwe", CweEntry.class, "relatedCweIds", "code"));
         register(RelationAqlField.<CapecEntry, AttackTechnique>listOf("relatedAttackTechnique", "attackTechnique", AttackTechnique.class, "relatedAttackTechniqueIds", "attackId"));
-        register(RelationAqlField.<CapecEntry, CapecEntry>listOf("parentCapec", "capec", CapecEntry.class, "parentCapecIds", "capecId"));
-        register(RelationAqlField.<CapecEntry, CapecEntry>listOf("childCapec", "capec", CapecEntry.class, "childCapecIds", "capecId"));
+        register(RelationAqlField.<CapecEntry, CapecEntry>listOf("parents", "capec", CapecEntry.class, "parentCapecIds", "capecId"));
+        register(RelationAqlField.<CapecEntry, CapecEntry>listOf("children", "capec", CapecEntry.class, "childCapecIds", "capecId"));
         register(new ArrayAqlField<>("domains", ARRAY_OPS, r -> r.get("domains")));
 
         this.defaultSearchFields = List.of(capecId, name);

@@ -54,7 +54,8 @@ public class AqlController {
     public List<AqlFieldDto> fields(@RequestParam String entity) {
         return registries.require(entity).allFields().stream()
             .map(f -> new AqlFieldDto(f.name(), typeLabel(f), f.kind().name(),
-                f.supportedOperators().stream().map(Enum::name).toList(), f.allowedValues()))
+                f.supportedOperators().stream().map(Enum::name).toList(), f.allowedValues(),
+                com.martecyber.ares.aql.compile.AqlGroupCountSupport.isGroupable(f)))
             .toList();
     }
 
@@ -68,7 +69,7 @@ public class AqlController {
     private String typeLabel(AqlField<?> f) {
         if (f instanceof RelationAqlField<?, ?> relation) return "list[" + relation.targetEntityName() + "]";
         // A flattened "<relation>.<leaf>" entry whose own leaf is ITSELF a bare RelationAqlField —
-        // e.g. exploit's "cves.cwes" (cves -> CveEntry, whose own "cwes" is list[cwe]) — reports
+        // e.g. exploit's "cve.cwe" (cve -> CveEntry, whose own "cwe" is list[cwe]) — reports
         // AqlFieldType.STRING via RelationLeafAqlField#type()'s delegation to that placeholder type,
         // same trap this method exists to avoid for a top-level relation. Recurse into the leaf
         // rather than checking `f` directly so relation-of-relation chains of any depth (list[X]

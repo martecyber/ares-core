@@ -317,6 +317,11 @@ public class PostgresSpecificationCompiler<T> {
         }
 
         AqlValue.Scalar scalar = (AqlValue.Scalar) value;
+        if (scalar.isNull()) {
+            if (op == AqlOperator.EQ) return cb.isNull(path);
+            if (op == AqlOperator.NEQ) return cb.isNotNull(path);
+            throw new AqlCompileException("'null' can only be compared with == or !=");
+        }
         return switch (op) {
             case EQ -> equalityPredicate(path, type, scalar, cb, false);
             case NEQ -> equalityPredicate(path, type, scalar, cb, true);

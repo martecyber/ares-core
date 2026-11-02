@@ -27,6 +27,7 @@ import java.util.Comparator;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabase.Replace;
 
 /**
@@ -162,6 +163,14 @@ class PostgresSpecificationCompilerDetectionIT {
         List<Detection> results = run("priority == P0");
         assertEquals(1, results.size());
         assertEquals("Critical XSS on login", results.get(0).getTitle());
+    }
+
+    @Test
+    void nullComparisonsWorkOnAnyFieldType() {
+        assertEquals(3, run("createdAt != null").size());
+        assertEquals(0, run("createdAt == null").size());
+        assertEquals(3, run("title != null AND priority != null").size());
+        assertThrows(AqlCompileException.class, () -> run("createdAt < null"));
     }
 
     @Test

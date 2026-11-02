@@ -145,8 +145,8 @@ public final class AqlGroupCountSupport {
         List<Tuple> rows = em.createQuery(cq).getResultList();
         List<GroupCount> raw = new ArrayList<>();
         for (Tuple t : rows) {
-            String label = t.get(0) == null ? "(none)" : String.valueOf(t.get(0));
-            String series = seriesExpr == null ? null : (t.get(1) == null ? "(none)" : String.valueOf(t.get(1)));
+            String label = labelOf(t.get(0));
+            String series = seriesExpr == null ? null : labelOf(t.get(1));
             long count = t.get(seriesExpr == null ? 1 : 2, Long.class);
             raw.add(new GroupCount(label, series, count));
         }
@@ -261,6 +261,21 @@ public final class AqlGroupCountSupport {
         for (int i = 0; i < orderedLabels.size(); i++) rank.put(orderedLabels.get(i), i);
         result.sort(java.util.Comparator.comparingInt(gc -> rank.get(gc.label())));
         return result;
+    }
+
+    /** "(none)" for NULL; ISO-8601 for timestamps (the UI turns a date bucket back into an AQL
+     *  date range, and a java.sql.Timestamp's toString isn't ISO). */
+    private static String labelOf(Object value) {
+        if (value == null) return "(none)";
+        if (value instanceof java.util.Date d) return d.toInstant().toString();
+        return String.valueOf(value);
+    }
+
+    /** Whether a dashboard chart can group by this field — exactly the kinds
+     *  {@link #resolveGroupExpression} handles. Exposed on /aql/fields so the widget editor only
+     *  offers fields that work. */
+    public static boolean isGroupable(AqlField<?> field) {
+        return field instanceof PostgresColumnField<?> || field instanceof StatusTransitionAqlField<?>;
     }
 
     private static <T> Expression<?> resolveGroupExpression(AqlField<T> field, Root<T> root, AbstractQuery<?> query, CriteriaBuilder cb) {

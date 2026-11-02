@@ -76,12 +76,10 @@ public record RelationAqlField<T, R>(
      * A {@code RelationAqlField} correlated via native-array membership rather than a join/bridge
      * table — the AQL surface's {@code list[X]} shape for a {@code text[]} column that holds
      * another entity's identifier codes (e.g. {@code CveEntry.cwes} holding CWE IDs) rather than
-     * plain display strings. {@code cve.cwes} used to be a bare {@link ArrayAqlField} (HAS-only:
-     * {@code cwes HAS "CWE-79"}); as a {@code list[cwe]} relation it's no longer directly
-     * comparable itself (same as every other bare {@code RelationAqlField}) but exposes every CWE
-     * field through the usual flattened {@code "cwes.<leaf>"} entries — {@code cwes.id ==
-     * "CWE-79"} resolves to the same CVEs {@code cwes HAS "CWE-79"} used to, plus lets a query
-     * reach {@code cwes.name}, {@code cwes.abstraction}, etc. Reuses {@code
+     * plain display strings. The AQL field {@code cve.cwe} is such a {@code list[cwe]} relation:
+     * not directly comparable itself (same as every other bare {@code RelationAqlField}) but it
+     * exposes every CWE field through the usual flattened {@code "cwe.<leaf>"} entries, e.g.
+     * {@code cwe.id == "CWE-79"}, {@code cwe.name}, {@code cwe.abstraction}. Reuses {@code
      * ares.array_contains_ci} (V157) — the exact same case-insensitive membership check HAS
      * already used — so the correlation semantics don't drift from HAS's, and no new SQL is
      * needed. Plain string arrays with no corresponding entity (platforms, preventions, ...) stay

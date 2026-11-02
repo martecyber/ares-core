@@ -193,4 +193,18 @@ class AqlInMemoryEvaluatorTest {
         AqlNode node = AqlParser.parse("notAField == foo");
         assertThrows(AqlFieldNotFoundException.class, () -> AqlInMemoryEvaluator.matches(d, node, registry));
     }
+
+    @Test
+    void nullChecksMissingValues() {
+        Detection withDate = detection("a", 1, 1, OffsetDateTime.now());
+        Detection noDate = detection("b", 1, 1, null);
+        assertTrue(eval(withDate, "createdAt != null"));
+        assertFalse(eval(withDate, "createdAt == null"));
+        assertTrue(eval(noDate, "createdAt == null"));
+        assertFalse(eval(noDate, "createdAt != null"));
+        // Quoted "null" is the literal string, not a missing value.
+        assertFalse(eval(detection("null", 1, 1, null), "title == null"));
+        assertTrue(eval(detection("null", 1, 1, null), "title == \"null\""));
+        assertThrows(AqlCompileException.class, () -> eval(withDate, "createdAt > null"));
+    }
 }

@@ -9,7 +9,13 @@ import java.util.List;
  */
 public sealed interface AqlValue {
 
-    record Scalar(String raw, boolean quoted) implements AqlValue { }
+    record Scalar(String raw, boolean quoted) implements AqlValue {
+        /** Unquoted {@code null} — {@code field == null} / {@code field != null} test for a missing
+         *  value on any field type. A quoted {@code "null"} stays the literal string. */
+        public boolean isNull() {
+            return !quoted && "null".equalsIgnoreCase(raw);
+        }
+    }
 
     record ListValue(List<Scalar> items) implements AqlValue { }
 }

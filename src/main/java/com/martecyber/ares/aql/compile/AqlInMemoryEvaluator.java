@@ -97,6 +97,14 @@ public final class AqlInMemoryEvaluator {
             return op == AqlOperator.NEQ ? !in : in;
         }
         AqlValue.Scalar scalar = (AqlValue.Scalar) value;
+        if (scalar.isNull()) {
+            boolean missing = actual == null
+                || (actual instanceof java.util.Collection<?> c && c.isEmpty())
+                || (actual instanceof Object[] arr && arr.length == 0);
+            if (op == AqlOperator.EQ) return missing;
+            if (op == AqlOperator.NEQ) return !missing;
+            throw new AqlCompileException("'null' can only be compared with == or !=");
+        }
         return switch (op) {
             case EQ -> valuesEqual(actual, type, scalar);
             case NEQ -> !valuesEqual(actual, type, scalar);

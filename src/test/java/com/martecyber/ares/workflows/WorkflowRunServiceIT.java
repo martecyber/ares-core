@@ -165,7 +165,8 @@ class WorkflowRunServiceIT {
             mock(com.martecyber.ares.aql.AqlQueryableEntityRegistry.class),
             mock(com.martecyber.ares.kb.exploits.ExploitService.class),
             mock(com.martecyber.ares.findings.templates.FindingTemplateService.class),
-            testToolSpecRegistry(), reportGenerationService, findingEmailReportService);
+            testToolSpecRegistry(), reportGenerationService, findingEmailReportService,
+            new com.martecyber.ares.aql.compile.AqlVariableExpander(projectRepo, organizationRepo));
 
         MessagingIntegration integration = new MessagingIntegration();
         integration.setName("test-integration-" + System.nanoTime());
@@ -457,6 +458,28 @@ class WorkflowRunServiceIT {
         assertTrue(output.get("result").asBoolean());
         assertEquals(2, output.get("leftCount").asLong());
         assertEquals(1, output.get("rightCount").asLong());
+    }
+
+    @Test
+    void aqlContextVariablesResolveInsideWorkflowQueries() throws Exception {
+        when(detectionService.countByAql(any(), any(), org.mockito.ArgumentMatchers.matches("createdAt > \\d{12,}"))).thenReturn(3L);
+        Workflow wf = saveWorkflow("""
+            {"nodes":[
+              {"id":"t1","type":"TRIGGER_MANUAL","data":{"label":"start","config":{}}},
+              {"id":"c1","type":"CONDITION","data":{"label":"cond","config":{"mode":"COUNT_COMPARE","operator":"GT",
+                "left":{"kind":"QUERY","entityType":"detection","aql":"createdAt > {{now}}-7d"},
+                "right":{"kind":"LITERAL","value":1}}}},
+              {"id":"nTrue","type":"ACTION_NOTIFICATION","data":{"label":"onTrue","config":{"integrationId":%d}}}
+            ],"edges":[
+              {"id":"e1","source":"t1","target":"c1"},
+              {"id":"e2","source":"c1","target":"nTrue","sourceHandle":"true"}
+            ]}""".formatted(integrationId), WorkflowScope.PROJECT, projectId);
+
+        WorkflowRun run = service.start(wf.getId(), "t1", Map.of(), "manual", null);
+
+        assertEquals(WorkflowRunStatus.COMPLETED, run.getStatus());
+        var output = MAPPER.readTree(stepsByNode(run.getId()).get("c1").getOutput());
+        assertEquals(3, output.get("leftCount").asLong(), "{{now}} must reach the query resolved, not blanked");
     }
 
     @Test

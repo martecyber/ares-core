@@ -245,7 +245,7 @@ public class FindingService {
                 .compile(node)
                 .and(scopeSpecification(projectId, orgId, orgIds, includeDrafts));
 
-        return mapToDto(repo.findAll(spec, p));
+        return mapToDto(com.martecyber.ares.assets.AssetAqlProjectContext.runWithProject(projectId, () -> repo.findAll(spec, p)));
     }
 
     /** Count-only variant of {@link #listByAql} — same scope resolution and AQL compilation, no
@@ -264,7 +264,7 @@ public class FindingService {
             new com.martecyber.ares.aql.compile.PostgresSpecificationCompiler<>(aqlRegistry)
                 .compile(node)
                 .and(scopeSpecification(projectId, orgId, orgIds, includeDrafts));
-        return repo.count(spec);
+        return com.martecyber.ares.assets.AssetAqlProjectContext.runWithProject(projectId, () -> repo.count(spec));
     }
 
     /** Grouped-count variant of {@link #countByAql} for the dashboard AQL_CHART widget — same
@@ -293,11 +293,11 @@ public class FindingService {
                 .compile(node)
                 .and(scopeSpecification(projectId, orgId, orgIds, includeDrafts));
         if ("iteration".equals(dateBucket)) {
-            return com.martecyber.ares.aql.compile.AqlGroupCountSupport.execute(
-                em, spec, Finding.class, aqlRegistry, "iterationLabel", null, seriesField, topN, "label_asc", true);
+            return com.martecyber.ares.assets.AssetAqlProjectContext.runWithProject(projectId, () -> com.martecyber.ares.aql.compile.AqlGroupCountSupport.execute(
+                em, spec, Finding.class, aqlRegistry, "iterationLabel", null, seriesField, topN, "label_asc", true));
         }
-        return com.martecyber.ares.aql.compile.AqlGroupCountSupport.execute(
-            em, spec, Finding.class, aqlRegistry, groupByField, dateBucket, seriesField, topN, sortMode);
+        return com.martecyber.ares.assets.AssetAqlProjectContext.runWithProject(projectId, () -> com.martecyber.ares.aql.compile.AqlGroupCountSupport.execute(
+            em, spec, Finding.class, aqlRegistry, groupByField, dateBucket, seriesField, topN, sortMode));
     }
 
     /** Mirrors list()'s access checks: a specific project or org requires explicit access;
