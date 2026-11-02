@@ -1,6 +1,5 @@
 package com.martecyber.ares.cli;
 
-import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.core.io.ClassPathResource;
@@ -12,36 +11,19 @@ import java.nio.file.*;
 import java.nio.file.attribute.PosixFilePermissions;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 @Service
 public class CliPackageService {
 
     private static final Logger log = LoggerFactory.getLogger(CliPackageService.class);
 
-    private static final Pattern VERSION_PATTERN = Pattern.compile("(?m)^version\\s*=\\s*\"([^\"]+)\"");
-
-    /** Parsed once at startup from cli/pyproject.toml — the CLI's own version file is the
-     *  single source of truth, replacing a previously hardcoded/never-actually-configured
-     *  ares.versions.cli property that silently drifted two releases behind. */
-    private String version = "0.0.0";
+    /** CLI_VERSION of the bundled cli/ares_cli.py — the script these packages contain. */
+    private final String version;
 
     private final ConcurrentHashMap<String, byte[]> cache = new ConcurrentHashMap<>();
 
-    @PostConstruct
-    void loadVersion() {
-        try {
-            String toml = new String(classPathBytes("cli/pyproject.toml"), StandardCharsets.UTF_8);
-            Matcher m = VERSION_PATTERN.matcher(toml);
-            if (m.find()) {
-                version = m.group(1);
-            } else {
-                log.warn("No version = \"...\" line found in cli/pyproject.toml — CLI packages will report version {}", version);
-            }
-        } catch (IOException e) {
-            log.warn("Could not read cli/pyproject.toml — CLI packages will report version {}: {}", version, e.getMessage());
-        }
+    public CliPackageService(com.martecyber.ares.common.PlatformVersions versions) {
+        this.version = versions.cli();
     }
 
     public String getVersion() {

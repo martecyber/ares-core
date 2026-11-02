@@ -38,8 +38,8 @@ ares:
       access-key: ${ARES_S3_ACCESS_KEY}
       secret-key: ${ARES_S3_SECRET_KEY}
   timezone: ${ARES_TIMEZONE:UTC}
+  # Read from the build (see PlatformVersions); these env vars only override when set.
   versions:
-    api: ${ARES_API_VERSION:1.0.0-beta4}
-    ui: ${ARES_UI_VERSION:1.0.0-beta3}
-    cli: ${ARES_CLI_VERSION:1.0.0-beta4}
-    agent: ${ARES_AGENT_VERSION:1.0.0-beta21}
+    api: ${ARES_API_VERSION:}
+    cli: ${ARES_CLI_VERSION:}
+    agent: ${ARES_AGENT_VERSION:}

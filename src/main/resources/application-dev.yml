@@ -34,19 +34,6 @@ ares:
       endpoint: http://localhost:9000
       access-key: aresadmin
       secret-key: aresadminpass
-  # Component versions surfaced via GET /api/v1/versions; `agent` also drives the
-  # auto-update mechanism (agent compares its baked-in AGENT_VERSION against this
-  # value on each heartbeat and self-replaces if newer).
-  #
-  # Format: MAJOR.MINOR.PATCH-betaN — bump N on each release (beta1 → beta2 → …).
-  # Don't touch MAJOR/MINOR/PATCH until we leave beta. Bump in lockstep with:
-  #   • api   → ares-core/pom.xml <revision>
-  #   • cli   → ares-cli/pyproject.toml + classpath ares_cli.py
-  #   • agent → ares-agent/ares_agent.py (AGENT_VERSION) + classpath copy
-  #   • ui    → ares-ui/package.json
+  # Component versions (GET /api/v1/versions) are read from the build itself — see
+  # PlatformVersions. Set ares.versions.{api,cli,agent} only to override them.
   timezone: "UTC"
-  versions:
-    api:   "1.0.0-beta4"
-    ui:    "1.0.0-beta3"
-    cli:   "1.0.0-beta4"
-    agent: "1.0.0-beta21"

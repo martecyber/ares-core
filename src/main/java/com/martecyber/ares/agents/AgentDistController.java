@@ -25,8 +25,8 @@ public class AgentDistController {
     @Value("${ares.public-url:}")
     private String configuredPublicUrl;
 
-    @Value("${ares.versions.agent:1.0.0-beta21}")
-    private String latestAgentVersion;
+    @org.springframework.beans.factory.annotation.Autowired
+    private com.martecyber.ares.common.PlatformVersions platformVersions;
 
     private final AgentPackageService packages;
 
@@ -37,7 +37,7 @@ public class AgentDistController {
     /** Public — UI uses this to highlight outdated agents in the inventory table. */
     @GetMapping(value = "/version", produces = "application/json")
     public java.util.Map<String, String> version() {
-        return java.util.Map.of("latest", latestAgentVersion);
+        return java.util.Map.of("latest", platformVersions.agent());
     }
 
     /**

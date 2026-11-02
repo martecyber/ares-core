@@ -9,7 +9,6 @@ import com.martecyber.ares.common.NotFoundException;
 import java.util.List;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -36,8 +35,8 @@ public class AgentRuntimeController {
     private final AgentTaskService tasks;
     private final AgentToolSpecRegistry toolSpecRegistry;
 
-    @Value("${ares.versions.agent:1.0.0-beta21}")
-    private String latestAgentVersion;
+    @org.springframework.beans.factory.annotation.Autowired
+    private com.martecyber.ares.common.PlatformVersions platformVersions;
 
     public AgentRuntimeController(AgentService service, AgentTaskService tasks, AgentToolSpecRegistry toolSpecRegistry) {
         this.service = service;
@@ -71,7 +70,7 @@ public class AgentRuntimeController {
         }
 
         boolean hasWork = diskOk && tasks.hasPendingForAgent(agentId);
-        HeartbeatResponse base = service.heartbeat(agentId, req, latestAgentVersion);
+        HeartbeatResponse base = service.heartbeat(agentId, req, platformVersions.agent());
         return new HeartbeatResponse(base.latestAgentVersion(), base.heartbeatIntervalSeconds(), hasWork, base.toolSpecsVersion());
     }
 

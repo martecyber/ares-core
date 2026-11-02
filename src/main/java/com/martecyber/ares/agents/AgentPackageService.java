@@ -25,8 +25,8 @@ public class AgentPackageService {
 
     private static final Logger log = LoggerFactory.getLogger(AgentPackageService.class);
 
-    @org.springframework.beans.factory.annotation.Value("${ares.versions.agent:0.1.1-beta1}")
-    private String version;
+    @org.springframework.beans.factory.annotation.Autowired
+    private com.martecyber.ares.common.PlatformVersions platformVersions;
 
     private final ConcurrentHashMap<String, byte[]> cache = new ConcurrentHashMap<>();
 
@@ -95,7 +95,7 @@ public class AgentPackageService {
                 "-s", "dir",
                 "-t", format,
                 "--name", "ares-agent",
-                "--version", version,
+                "--version", platformVersions.agent(),
                 "--description", "Ares ASM remote scan agent",
                 "--url", baseUrl,
                 "--maintainer", "Ares ASM",
@@ -200,7 +200,7 @@ public class AgentPackageService {
 
             String template = new String(classPathBytes("agent/install.nsi.template"), StandardCharsets.UTF_8);
             String nsi = template
-                .replace("{{version}}", version)
+                .replace("{{version}}", platformVersions.agent())
                 .replace("{{SERVER_URL}}", baseUrl);
             Files.writeString(tmp.resolve("installer.nsi"), nsi, StandardCharsets.UTF_8);
 
