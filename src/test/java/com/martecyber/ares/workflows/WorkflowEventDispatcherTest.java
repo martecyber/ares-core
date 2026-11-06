@@ -1,6 +1,7 @@
 package com.martecyber.ares.workflows;
 
 import com.martecyber.ares.assets.Asset;
+import com.martecyber.ares.common.PlatformSettingsService;
 import com.martecyber.ares.detections.Detection;
 import com.martecyber.ares.findings.Finding;
 import com.martecyber.ares.findings.FindingPresentationService;
@@ -52,8 +53,10 @@ class WorkflowEventDispatcherTest {
         // them are simply absent — exactly what a test that doesn't care about those fields
         // wants without having to stub anything.
         findingPresentationService = mock(FindingPresentationService.class);
+        PlatformSettingsService platformSettings = mock(PlatformSettingsService.class);
+        when(platformSettings.getPublicUrl()).thenReturn("https://ares.test");
         dispatcher = new WorkflowEventDispatcher(triggerRepo, workflowRepo, runService, projectRepo,
-            findingPresentationService);
+            findingPresentationService, platformSettings);
     }
 
     private WorkflowTrigger trigger(long workflowId, String nodeId, String eventCode) {
@@ -103,6 +106,21 @@ class WorkflowEventDispatcherTest {
         dispatcher.onDetectionCreated(detection(1, 5));
 
         verify(runService).start(eq(10L), eq("n1"), any(), eq("event"), eq((Long) null));
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void triggerContextCarriesALinkToTheEntity() {
+        WorkflowTrigger t = trigger(10, "n1", "detection.created");
+        when(triggerRepo.findByTriggerTypeAndEnabledTrue(WorkflowTriggerType.EVENT)).thenReturn(List.of(t));
+        stubWorkflow(10, WorkflowScope.PROJECT, 5, "active");
+        stubProject(5, 99);
+
+        dispatcher.onDetectionCreated(detection(1, 5));
+
+        ArgumentCaptor<Map<String, Object>> ctx = ArgumentCaptor.forClass(Map.class);
+        verify(runService).start(eq(10L), eq("n1"), ctx.capture(), eq("event"), eq((Long) null));
+        assertEquals("https://ares.test/organization/99/projects/5/detections/1", ctx.getValue().get("url"));
     }
 
     @Test

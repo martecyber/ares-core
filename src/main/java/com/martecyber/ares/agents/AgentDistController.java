@@ -1,7 +1,9 @@
 package com.martecyber.ares.agents;
 
+import com.martecyber.ares.common.PlatformSettingsService;
+import com.martecyber.ares.common.PlatformVersions;
 import jakarta.servlet.http.HttpServletRequest;
-import org.springframework.beans.factory.annotation.Value;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
@@ -22,11 +24,11 @@ import java.io.IOException;
 @RequestMapping("/api/v1/agent/dist")
 public class AgentDistController {
 
-    @Value("${ares.public-url:}")
-    private String configuredPublicUrl;
+    @Autowired
+    private PlatformSettingsService platformSettings;
 
-    @org.springframework.beans.factory.annotation.Autowired
-    private com.martecyber.ares.common.PlatformVersions platformVersions;
+    @Autowired
+    private PlatformVersions platformVersions;
 
     private final AgentPackageService packages;
 
@@ -89,7 +91,7 @@ public class AgentDistController {
 
     private ResponseEntity<byte[]> build(HttpServletRequest req, String format,
                                           String contentType, String filename) {
-        String base = resolveBaseUrl(req);
+        String base = platformSettings.resolveBaseUrl(req);
         try {
             byte[] data = switch (format) {
                 case "deb" -> packages.getDeb(base);
@@ -116,19 +118,4 @@ public class AgentDistController {
         }
     }
 
-    private String resolveBaseUrl(HttpServletRequest req) {
-        if (configuredPublicUrl != null && !configuredPublicUrl.isBlank())
-            return configuredPublicUrl.stripTrailing().replaceAll("/$", "");
-        String proto = coalesce(req.getHeader("X-Forwarded-Proto"), req.getScheme());
-        String host  = coalesce(req.getHeader("X-Forwarded-Host"), req.getHeader("Host"));
-        if (host == null) {
-            int port = req.getServerPort();
-            host = req.getServerName() + (port == 80 || port == 443 ? "" : ":" + port);
-        }
-        return proto + "://" + host;
-    }
-
-    private static String coalesce(String a, String b) {
-        return (a != null && !a.isBlank()) ? a : b;
-    }
 }

@@ -1,8 +1,8 @@
 package com.martecyber.ares.cli;
 
+import com.martecyber.ares.common.PlatformSettingsService;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
@@ -20,8 +20,8 @@ import java.util.Map;
 @RequestMapping("/api/v1/cli")
 public class CliController {
 
-    @Value("${ares.public-url:}")
-    private String configuredPublicUrl;
+    @Autowired
+    private PlatformSettingsService platformSettings;
 
     @Autowired
     private CliPackageService packages;
@@ -46,14 +46,14 @@ public class CliController {
     /** Bash installer for Linux and macOS. */
     @GetMapping(value = "/install.sh", produces = "text/plain;charset=UTF-8")
     public ResponseEntity<String> installSh(HttpServletRequest req) {
-        String base = resolveBaseUrl(req);
+        String base = platformSettings.resolveBaseUrl(req);
         return attachment("install.sh", buildBashScript(base));
     }
 
     /** PowerShell installer for Windows. */
     @GetMapping(value = "/install.ps1", produces = "text/plain;charset=UTF-8")
     public ResponseEntity<String> installPs1(HttpServletRequest req) {
-        String base = resolveBaseUrl(req);
+        String base = platformSettings.resolveBaseUrl(req);
         return attachment("install.ps1", buildPowerShellScript(base));
     }
 
@@ -79,7 +79,7 @@ public class CliController {
                                                  String format,
                                                  String contentType,
                                                  String filename) {
-        String base = resolveBaseUrl(req);
+        String base = platformSettings.resolveBaseUrl(req);
         try {
             byte[] data = switch (format) {
                 case "deb" -> packages.getDeb(base);
@@ -116,21 +116,6 @@ public class CliController {
             .body(body);
     }
 
-    private String resolveBaseUrl(HttpServletRequest req) {
-        if (configuredPublicUrl != null && !configuredPublicUrl.isBlank())
-            return configuredPublicUrl.stripTrailing().replaceAll("/$", "");
-        String proto = coalesce(req.getHeader("X-Forwarded-Proto"), req.getScheme());
-        String host  = coalesce(req.getHeader("X-Forwarded-Host"), req.getHeader("Host"));
-        if (host == null) {
-            int port = req.getServerPort();
-            host = req.getServerName() + (port == 80 || port == 443 ? "" : ":" + port);
-        }
-        return proto + "://" + host;
-    }
-
-    private static String coalesce(String a, String b) {
-        return (a != null && !a.isBlank()) ? a : b;
-    }
 
     // ── script templates ──────────────────────────────────────────────────────
 

@@ -22,7 +22,11 @@ public class PlatformSettingsController {
 
     @GetMapping
     public Map<String, String> get() {
-        return Map.of("timezone", service.getTimezone());
+        return current();
+    }
+
+    private Map<String, String> current() {
+        return Map.of("timezone", service.getTimezone(), "publicUrl", service.getPublicUrl());
     }
 
     @PatchMapping
@@ -30,6 +34,9 @@ public class PlatformSettingsController {
         if (body.containsKey("timezone")) {
             service.setTimezone(body.get("timezone"));
         }
-        return Map.of("timezone", service.getTimezone());
+        if (body.containsKey("publicUrl")) {
+            service.setPublicUrl(body.get("publicUrl"));
+        }
+        return current();
     }
 }

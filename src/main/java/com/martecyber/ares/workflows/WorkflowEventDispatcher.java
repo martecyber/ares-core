@@ -3,6 +3,7 @@ package com.martecyber.ares.workflows;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.martecyber.ares.assets.Asset;
+import com.martecyber.ares.common.PlatformSettingsService;
 import com.martecyber.ares.detections.Detection;
 import com.martecyber.ares.findings.Finding;
 import com.martecyber.ares.findings.FindingPresentationService;
@@ -62,6 +63,7 @@ public class WorkflowEventDispatcher {
     private final WorkflowRunService runService;
     private final ProjectRepository projectRepo;
     private final FindingPresentationService findingPresentationService;
+    private final PlatformSettingsService platformSettings;
 
     // WorkflowRunService depends on Asset/Finding/Detection services (ASSIGN_VARIABLE query
     // mode) — those services are exactly the ones calling into this dispatcher on entity
@@ -70,12 +72,14 @@ public class WorkflowEventDispatcher {
     // by which point the whole context (including the cycle's other side) already exists.
     public WorkflowEventDispatcher(WorkflowTriggerRepository triggerRepo, WorkflowRepository workflowRepo,
                                     @Lazy WorkflowRunService runService, ProjectRepository projectRepo,
-                                    FindingPresentationService findingPresentationService) {
+                                    FindingPresentationService findingPresentationService,
+                                    PlatformSettingsService platformSettings) {
         this.triggerRepo = triggerRepo;
         this.workflowRepo = workflowRepo;
         this.runService = runService;
         this.projectRepo = projectRepo;
         this.findingPresentationService = findingPresentationService;
+        this.platformSettings = platformSettings;
     }
 
     public void onDetectionCreated(Detection d) { dispatch("detection.created", d.getId(), detectionSnapshot(d), d.getProjectId()); }
@@ -289,7 +293,10 @@ public class WorkflowEventDispatcher {
         // type name, reused verbatim as the context key so trigger.detection/trigger.finding/
         // trigger.cve/etc. line up with every other place this codebase names an entity type.
         String entityTypeKey = eventCode.substring(0, eventCode.indexOf('.'));
-        Map<String, Object> triggerContext = Map.of("eventCode", eventCode, "entityId", entityId, entityTypeKey, entity);
+        // trigger.url is a deep link to the entity in the Ares UI. exactScopeId is the project id
+        // for project-scoped entities (detection/finding) and null otherwise.
+        String url = WorkflowEntityLinks.build(platformSettings.getPublicUrl(), eventCode, entityId, orgId, exactScopeId);
+        Map<String, Object> triggerContext = Map.of("eventCode", eventCode, "entityId", entityId, "url", url, entityTypeKey, entity);
         for (WorkflowTrigger trigger : candidates) {
             if (!eventCode.equals(readConfigField(trigger.getConfig(), "eventCode"))) continue;
             Workflow wf = workflowRepo.findById(trigger.getWorkflowId()).orElse(null);

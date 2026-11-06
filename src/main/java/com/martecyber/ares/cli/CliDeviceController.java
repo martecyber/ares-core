@@ -1,7 +1,8 @@
 package com.martecyber.ares.cli;
 
+import com.martecyber.ares.common.PlatformSettingsService;
 import jakarta.servlet.http.HttpServletRequest;
-import org.springframework.beans.factory.annotation.Value;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.Map;
@@ -17,8 +18,8 @@ import java.util.Map;
 @RequestMapping("/api/v1/cli/device")
 public class CliDeviceController {
 
-    @Value("${ares.public-url:}")
-    private String configuredPublicUrl;
+    @Autowired
+    private PlatformSettingsService platformSettings;
 
     private final CliDeviceAuthService svc;
 
@@ -29,7 +30,7 @@ public class CliDeviceController {
     @PostMapping("/start")
     public Map<String, Object> start(@RequestBody(required = false) StartRequest req, HttpServletRequest httpReq) {
         CliDeviceAuth a = svc.start(req != null ? req.clientInfo() : null);
-        String base = resolveBaseUrl(httpReq);
+        String base = platformSettings.resolveBaseUrl(httpReq);
         return Map.of(
             "deviceCode", a.getDeviceCode(),
             "userCode", a.getUserCode(),
@@ -54,19 +55,4 @@ public class CliDeviceController {
         return svc.poll(deviceCode);
     }
 
-    private String resolveBaseUrl(HttpServletRequest req) {
-        if (configuredPublicUrl != null && !configuredPublicUrl.isBlank())
-            return configuredPublicUrl.stripTrailing().replaceAll("/$", "");
-        String proto = coalesce(req.getHeader("X-Forwarded-Proto"), req.getScheme());
-        String host  = coalesce(req.getHeader("X-Forwarded-Host"), req.getHeader("Host"));
-        if (host == null) {
-            int port = req.getServerPort();
-            host = req.getServerName() + (port == 80 || port == 443 ? "" : ":" + port);
-        }
-        return proto + "://" + host;
-    }
-
-    private static String coalesce(String a, String b) {
-        return (a != null && !a.isBlank()) ? a : b;
-    }
 }
